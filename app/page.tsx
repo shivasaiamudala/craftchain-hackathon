@@ -18,7 +18,7 @@ export default function Home() {
   
   const activeProject = projects.find(p => p.id === activeID) || projects[0]
 
-  // 1. PULL DATA AND LISTEN FOR REAL-TIME CHANGES
+  // 1. STABILIZED REAL-TIME LISTENER
   useEffect(() => {
     if (!currentUser || !serverID) return
 
@@ -47,7 +47,7 @@ export default function Home() {
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
-    // CRITICAL: We only listen to currentUser and serverID to stop the crashing!
+    // FIXED: Only depends on login info to prevent the size-change crash!
   }, [currentUser, serverID])
 
   const build = (name: string, q = 1, id = "root"): any => {
@@ -75,13 +75,13 @@ export default function Home() {
     if (projectToDelete?.creator !== currentUser.username && projectToDelete?.creator !== "SYSTEM") {
       return alert("Access Denied: Only the creator can delete this!")
     }
-    setProjects(projects.filter(x => x.id !== id))
-    setActiveID(projects.find(x => x.id !== id)?.id || projects[0]?.id || "")
+    setProjects(prev => prev.filter(x => x.id !== id))
+    if (activeID === id) setActiveID(projects[0]?.id || "def")
     await supabase.from('projects').delete().eq('id', id)
   }
 
   const handleTreeUpdate = async (updatedTree: any) => {
-    if (!activeProject || activeProject.id === "def") return;
+    if (!activeID || activeID === "def") return;
     setProjects(prev => prev.map(p => p.id === activeID ? { ...p, tree: updatedTree } : p))
     await supabase.from('projects').update({ tree: updatedTree }).eq('id', activeID)
   }
@@ -130,7 +130,7 @@ export default function Home() {
             onTreeUpdate={handleTreeUpdate} 
           />
           <section className="bg-mc-obsidian-bg border-2 border-mc-border p-4">
-            <h3 className="text-mc-gold uppercase text-xs font-black mb-4 flex items-center gap-2"><ShoppingCart className="w-4 h-4"/> Resources: {activeProject?.name}</h3>
+            <h3 className="text-mc-gold uppercase text-xs font-black mb-4 flex items-center gap-2"><ShoppingCart className="w-4 h-4"/> Resources: {activeProject?.name || "None"}</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
               {shopList.map(([n, q]: any) => <div key={n} className="bg-mc-slot p-2 border border-mc-slot-border flex justify-between text-[10px]"><span>{n}</span><span className="text-mc-grass">x{q}</span></div>)}
             </div>
