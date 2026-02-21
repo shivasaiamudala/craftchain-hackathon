@@ -23,12 +23,7 @@ export default function Home() {
     if (!currentUser || !serverID) return
 
     const loadProjects = async () => {
-      const { data } = await supabase
-        .from('projects')
-        .select('*')
-        .eq('server_id', serverID)
-        .order('created_at', { ascending: true })
-      
+      const { data } = await supabase.from('projects').select('*').eq('server_id', serverID).order('created_at', { ascending: true })
       if (data && data.length > 0) { 
         setProjects(data); 
         setActiveID(data[0].id) 
@@ -42,22 +37,17 @@ export default function Home() {
       .channel(`room-${serverID}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'projects', filter: `server_id=eq.${serverID}` }, (payload) => {
         if (payload.eventType === 'INSERT') {
-          setProjects(prev => {
-            if (prev.find(p => p.id === payload.new.id)) return prev;
-            return [...prev, payload.new];
-          })
+          setProjects(prev => prev.find(p => p.id === payload.new.id) ? prev : [...prev, payload.new])
         } else if (payload.eventType === 'UPDATE') {
           setProjects(prev => prev.map(p => p.id === payload.new.id ? payload.new : p))
         } else if (payload.eventType === 'DELETE') {
-          const deletedId = payload.old.id;
-          setProjects(prev => prev.filter(p => p.id !== deletedId));
+          setProjects(prev => prev.filter(p => p.id !== payload.old.id))
         }
       })
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
-    
-    // WE REMOVED 'projects' and 'activeID' from here to stop the crashing!
+    // CRITICAL: We only listen to currentUser and serverID to stop the crashing!
   }, [currentUser, serverID])
 
   const build = (name: string, q = 1, id = "root"): any => {
