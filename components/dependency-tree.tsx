@@ -35,7 +35,6 @@ function TreeItem({ node, depth = 0, onToggleStatus, currentUser }: any) {
   )
 }
 
-// FULLY RESTORED DEFAULT TREE
 export const netheriteSwordTree: TreeNode = {
   id: "netherite-sword",
   name: "Netherite Sword",
@@ -73,15 +72,24 @@ export const netheriteSwordTree: TreeNode = {
   ],
 }
 
-export function DependencyTree({ tree, currentUser, onPointAdded }: any) {
-  const [localTree, setLocalTree] = useState<TreeNode>(tree); useEffect(() => { setLocalTree(tree) }, [tree])
+export function DependencyTree({ tree, currentUser, onPointAdded, onTreeUpdate }: any) {
+  const [localTree, setLocalTree] = useState<TreeNode>(tree); 
+  
+  useEffect(() => { setLocalTree(tree) }, [tree])
 
   const toggleNode = (node: TreeNode, id: string): TreeNode => {
     if (node.id === id) { 
-      const comp = node.status !== "completed"; onPointAdded(comp ? 1 : -1);
+      const comp = node.status !== "completed"; 
+      onPointAdded(comp ? 1 : -1);
       return { ...node, status: comp ? "completed" : "pending", contributor: comp ? currentUser.username : undefined, contributorAvatar: comp ? currentUser.avatar : undefined }
     }
     return { ...node, children: node.children?.map(c => toggleNode(c, id)) }
+  }
+
+  const handleToggle = (id: string) => {
+    const newTree = toggleNode(localTree, id);
+    setLocalTree(newTree);
+    if (onTreeUpdate) onTreeUpdate(newTree);
   }
 
   const calc = (node: TreeNode): any => {
@@ -102,7 +110,7 @@ export function DependencyTree({ tree, currentUser, onPointAdded }: any) {
         </div>
       </div>
       <div className="py-2 min-h-[300px] overflow-y-auto">
-        <TreeItem node={localTree} onToggleStatus={(id: string) => setLocalTree(toggleNode(localTree, id))} currentUser={currentUser} />
+        <TreeItem node={localTree} onToggleStatus={handleToggle} currentUser={currentUser} />
       </div>
     </div>
   )
