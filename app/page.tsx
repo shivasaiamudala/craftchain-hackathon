@@ -12,11 +12,10 @@ export default function Home() {
   const [currentView, setCurrentView] = useState<'login' | 'signup' | 'verify' | 'app'>('signup')
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [serverID, setServerID] = useState("")
-  
-  // NEW: Auth Error State to show red warnings!
   const [authError, setAuthError] = useState("")
 
-  const [loginForm, setLoginForm] = useState({ user: "", pass: "", sName: "", sCode: "" })
+  // CHANGED: loginForm now uses 'email' instead of 'user'
+  const [loginForm, setLoginForm] = useState({ email: "", pass: "", sName: "", sCode: "" })
   const [signupForm, setSignupForm] = useState({ email: "", user: "", pass: "" })
   const [verifyCode, setVerifyCode] = useState("")
 
@@ -87,22 +86,28 @@ export default function Home() {
   const togglePin = (id: string) => setPinnedProjects(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id])
 
   // ==========================================
-  // AUTHENTICATION LOGIC
+  // REAL AUTHENTICATION LOGIC
   // ==========================================
   
   const handleSignupSubmit = async (e: any) => {
     e.preventDefault();
-    setAuthError(""); // Clear old errors
+    setAuthError("");
     
-    // 1. Check if username or email already exists in DB
-    const { data } = await supabase.from('users').select('*').or(`email.eq.${signupForm.email},username.eq.${signupForm.user}`);
+    // 1. Tell Supabase to create the user and send the email
+    const { data, error } = await supabase.auth.signUp({
+      email: signupForm.email,
+      password: signupForm.pass,
+      options: {
+        data: { username: signupForm.user } // Save their Minecraft name in metadata
+      }
+    });
     
-    if (data && data.length > 0) {
-      setAuthError("Email or Username is already taken!");
+    if (error) {
+      setAuthError(error.message);
       return;
     }
     
-    // If it's unique, move to verify screen
+    // 2. Move to verify screen so they can enter the code from their email
     setCurrentView('verify');
   }
 
@@ -110,20 +115,22 @@ export default function Home() {
     e.preventDefault();
     setAuthError("");
     
-    // 2. Save the new user to the database!
-    const { error } = await supabase.from('users').insert([{
+    // 3. Send the 6-digit code back to Supabase to prove it's them
+    const { data: { session }, error } = await supabase.auth.verifyOtp({
       email: signupForm.email,
-      username: signupForm.user,
-      password: signupForm.pass // Saving directly for hackathon speed
-    }]);
+      token: verifyCode,
+      type: 'signup'
+    });
 
     if (error) {
-      setAuthError("Failed to create account. Try again.");
+      setAuthError("Invalid code. Please check your email and try again.");
       return;
     }
 
-    setServerID("New-Server"); 
-    setCurrentUser({ username: signupForm.user, avatar: `https://api.mineatar.io/face/${signupForm.user}` }); 
+    // Success! Log them in.
+    const username = session?.user.user_metadata.username || "Player";
+    setServerID("Survival-1"); // Defaulting server for new users
+    setCurrentUser({ username: username, avatar: `https://api.mineatar.io/face/${username}` }); 
     setCurrentView('app');
   }
 
@@ -131,26 +138,32 @@ export default function Home() {
     e.preventDefault();
     setAuthError("");
 
-    // 3. Check if the username and password match a row in the DB!
-    const { data } = await supabase.from('users')
-      .select('*')
-      .eq('username', loginForm.user)
-      .eq('password', loginForm.pass);
+    // 4. Check real credentials
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: loginForm.email,
+      password: loginForm.pass,
+    });
 
-    if (data && data.length > 0) {
-      // Success! They matched!
-      setServerID(loginForm.sCode); 
-      setCurrentUser({ username: data[0].username, avatar: `https://api.mineatar.io/face/${data[0].username}` }); 
-      setCurrentView('app'); 
-    } else {
-      // Failed!
-      setAuthError("Invalid Username or Password!");
+    if (error) {
+      setAuthError(error.message);
+      return;
     }
+
+    // Success!
+    const username = data.user.user_metadata.username || "Player";
+    setServerID(loginForm.sCode); 
+    setCurrentUser({ username: username, avatar: `https://api.mineatar.io/face/${username}` }); 
+    setCurrentView('app'); 
   }
 
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setCurrentUser(null);
+    setCurrentView('login');
+  }
 
   // ==========================================
-  // VIEW: 1. SIGN UP PAGE 
+  // VIEW: 1. SIGN UP PAGE
   // ==========================================
   if (currentView === 'signup') return (
     <div className="min-h-screen flex items-center justify-center bg-cover bg-center px-4" style={{ backgroundImage: "url('/bg1.jpg')" }}>
@@ -158,13 +171,12 @@ export default function Home() {
       <div className="relative z-10 w-full max-w-md bg-mc-obsidian border-4 border-mc-slot-border p-6 md:p-8 shadow-2xl">
         <h1 className="text-3xl font-black text-mc-gold uppercase italic text-center mb-8">Join Network</h1>
         
-        {/* Error Box */}
         {authError && <div className="bg-red-900/50 border-2 border-mc-nether text-white text-xs font-bold p-2 mb-4 text-center uppercase">{authError}</div>}
         
         <form onSubmit={handleSignupSubmit} className="space-y-4">
           <input required type="email" placeholder="Email address" value={signupForm.email} onChange={e => setSignupForm({...signupForm, email: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-gold" />
           <input required placeholder="Username" value={signupForm.user} onChange={e => setSignupForm({...signupForm, user: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-gold" />
-          <input required type="password" placeholder="Password" value={signupForm.pass} onChange={e => setSignupForm({...signupForm, pass: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-gold" />
+          <input required type="password" placeholder="Password (min 6 chars)" minLength={6} value={signupForm.pass} onChange={e => setSignupForm({...signupForm, pass: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-gold" />
           <button type="submit" className="w-full bg-mc-gold hover:bg-yellow-400 text-mc-obsidian font-black py-4 border-b-4 border-yellow-600 transition-all uppercase mt-4">Create account</button>
         </form>
         <button onClick={() => { setAuthError(""); setCurrentView('login'); }} className="mt-6 text-xs text-white/50 hover:text-white uppercase font-bold block text-center w-full">Already have an account? Log in</button>
@@ -181,11 +193,11 @@ export default function Home() {
       <div className="relative z-10 w-full max-w-md bg-mc-obsidian border-4 border-mc-slot-border p-6 md:p-8 shadow-2xl">
         <h1 className="text-4xl font-black text-mc-grass uppercase italic text-center mb-8">Craft Chain</h1>
         
-        {/* Error Box */}
         {authError && <div className="bg-red-900/50 border-2 border-mc-nether text-white text-xs font-bold p-2 mb-4 text-center uppercase">{authError}</div>}
         
         <form onSubmit={handleLoginSubmit} className="space-y-4">
-          <input required placeholder="Username" value={loginForm.user} onChange={e => setLoginForm({...loginForm, user: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-grass" />
+          {/* CHANGED TO EMAIL */}
+          <input required type="email" placeholder="Email address" value={loginForm.email} onChange={e => setLoginForm({...loginForm, email: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-grass" />
           <input required type="password" placeholder="Password" value={loginForm.pass} onChange={e => setLoginForm({...loginForm, pass: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-grass" />
           <input required placeholder="Server Name" value={loginForm.sName} onChange={e => setLoginForm({...loginForm, sName: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-grass" />
           <input required placeholder="Server Code" value={loginForm.sCode} onChange={e => setLoginForm({...loginForm, sCode: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-grass" />
@@ -207,7 +219,7 @@ export default function Home() {
       <div className="absolute inset-0 bg-black/60" />
       <div className="relative z-10 w-full max-w-md bg-mc-obsidian border-4 border-mc-slot-border p-6 md:p-8 shadow-2xl text-center">
         <h1 className="text-2xl font-black text-white uppercase italic mb-4">Verify Email</h1>
-        <p className="text-xs text-white/70 mb-6">Enter the secret code sent to {signupForm.email || "your email"}.</p>
+        <p className="text-xs text-white/70 mb-6">Enter the 6-digit secret code sent to {signupForm.email || "your email"}.</p>
         
         {authError && <div className="bg-red-900/50 border-2 border-mc-nether text-white text-xs font-bold p-2 mb-4 text-center uppercase">{authError}</div>}
         
@@ -231,7 +243,7 @@ export default function Home() {
         <div className="flex flex-col"><h1 className="text-2xl text-mc-grass uppercase font-black italic leading-none">Craft Chain</h1><span className="text-[9px] text-mc-gold uppercase font-bold mt-1 tracking-widest"><Server className="inline w-3 h-3 mr-1"/> {serverID}</span></div>
         <div className="flex items-center justify-between md:justify-end gap-4 w-full md:w-auto mt-2 md:mt-0">
           <div className="flex items-center gap-2 bg-mc-slot border-2 border-mc-border px-3 py-1"><img src={currentUser.avatar} className="w-6 h-6 pixelated"/><span className="text-mc-gold text-xs font-bold">{currentUser.username}</span></div>
-          <button onClick={() => { setCurrentUser(null); setCurrentView('login'); }} className="text-[10px] text-mc-nether uppercase font-bold hover:underline shadow-sm bg-black/40 px-2 py-1 rounded">Logout</button>
+          <button onClick={handleLogout} className="text-[10px] text-mc-nether uppercase font-bold hover:underline shadow-sm bg-black/40 px-2 py-1 rounded">Logout</button>
         </div>
       </header>
 
