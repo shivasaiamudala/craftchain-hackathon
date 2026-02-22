@@ -233,7 +233,7 @@ export default function Home() {
                   <h3 className="text-mc-grass uppercase text-[10px] font-black tracking-widest">Your Projects</h3>
                 </div>
                 {myProjectsOpen && (
-                  <div className="p-2 overflow-y-auto flex flex-col gap-2 max-h-[300px] custom-scrollbar">
+                  <div className="p-2 overflow-y flex flex-col gap-2 max-h-[300px] custom-scrollbar">
                     {myProjects.length === 0 ? <span className="text-[10px] text-white/30 p-2 text-center block">No projects created yet.</span> : 
                       myProjects.map(p => (
                         <div key={p.id} onClick={() => { setActiveID(p.id); toggleTree(); }} className={`flex items-center justify-between p-2 border border-mc-slot-border bg-mc-slot cursor-pointer ${activeID === p.id ? 'ring-1 ring-mc-grass' : 'hover:bg-mc-slot-highlight'}`}>
@@ -295,7 +295,7 @@ export default function Home() {
           <div className="flex-1 min-h-0 relative shadow-2xl">
             <ChatBox currentUser={currentUser} serverID={serverID} />
           </div>
-          <div className="shrink-0 h-[250px] overflow-hidden shadow-2xl">
+          <div className="shrink-0 h-[100px] overflow-hidden shadow-2xl">
              <Leaderboard data={leaderboard} />
           </div>
         </div>

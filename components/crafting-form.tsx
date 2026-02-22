@@ -4,13 +4,51 @@ import { useState } from "react"
 import { Search, Hammer, Sparkles } from "lucide-react"
 
 export const MOCK_RECIPES: Record<string, { requires: { name: string; qty: number }[] }> = {
+  // Tools & Weapons
   "Netherite Sword": { requires: [{ name: "Diamond Sword", qty: 1 }, { name: "Netherite Ingot", qty: 1 }] },
+  "Netherite Pickaxe": { requires: [{ name: "Diamond Pickaxe", qty: 1 }, { name: "Netherite Ingot", qty: 1 }] },
   "Diamond Sword": { requires: [{ name: "Diamonds", qty: 2 }, { name: "Stick", qty: 1 }] },
+  "Diamond Pickaxe": { requires: [{ name: "Diamonds", qty: 3 }, { name: "Stick", qty: 2 }] },
+  "Diamond Armor Set": { requires: [{ name: "Diamonds", qty: 24 }] },
+  "Bow": { requires: [{ name: "String", qty: 3 }, { name: "Stick", qty: 3 }] },
+  "Arrow": { requires: [{ name: "Flint", qty: 1 }, { name: "Stick", qty: 1 }, { name: "Feather", qty: 1 }] },
+
+  // Resources & Ores
   "Netherite Ingot": { requires: [{ name: "Netherite Scrap", qty: 4 }, { name: "Gold Ingot", qty: 4 }] },
   "Netherite Scrap": { requires: [{ name: "Ancient Debris", qty: 4 }] },
-  "Enchanting Table": { requires: [{ name: "Book", qty: 1 }, { name: "Diamonds", qty: 2 }, { name: "Obsidian", qty: 4 }] },
-  "Cake": { requires: [{ name: "Milk", qty: 3 }, { name: "Sugar", qty: 2 }, { name: "Egg", qty: 1 }, { name: "Wheat", qty: 3 }] },
+  "Iron Block": { requires: [{ name: "Iron Ingot", qty: 9 }] },
+  "Gold Block": { requires: [{ name: "Gold Ingot", qty: 9 }] },
+
+  // Redstone & Mechanics
   "Observer": { requires: [{ name: "Cobblestone", qty: 6 }, { name: "Redstone", qty: 2 }, { name: "Quartz", qty: 1 }] },
+  "Piston": { requires: [{ name: "Planks", qty: 3 }, { name: "Cobblestone", qty: 4 }, { name: "Iron Ingot", qty: 1 }, { name: "Redstone", qty: 1 }] },
+  "Sticky Piston": { requires: [{ name: "Piston", qty: 1 }, { name: "Slimeball", qty: 1 }] },
+  "Dispenser": { requires: [{ name: "Cobblestone", qty: 7 }, { name: "Bow", qty: 1 }, { name: "Redstone", qty: 1 }] },
+  "Dropper": { requires: [{ name: "Cobblestone", qty: 7 }, { name: "Redstone", qty: 1 }] },
+  "Hopper": { requires: [{ name: "Iron Ingot", qty: 5 }, { name: "Chest", qty: 1 }] },
+  "Daylight Detector": { requires: [{ name: "Glass", qty: 3 }, { name: "Quartz", qty: 3 }, { name: "Wooden Slab", qty: 3 }] },
+  "TNT": { requires: [{ name: "Gunpowder", qty: 5 }, { name: "Sand", qty: 4 }] },
+
+  // Magic & End Game
+  "Enchanting Table": { requires: [{ name: "Book", qty: 1 }, { name: "Diamonds", qty: 2 }, { name: "Obsidian", qty: 4 }] },
+  "Beacon": { requires: [{ name: "Glass", qty: 5 }, { name: "Nether Star", qty: 1 }, { name: "Obsidian", qty: 3 }] },
+  "Anvil": { requires: [{ name: "Iron Block", qty: 3 }, { name: "Iron Ingot", qty: 4 }] },
+  "Brewing Stand": { requires: [{ name: "Blaze Rod", qty: 1 }, { name: "Cobblestone", qty: 3 }] },
+  "Ender Eye": { requires: [{ name: "Ender Pearl", qty: 1 }, { name: "Blaze Powder", qty: 1 }] },
+
+  // Food
+  "Cake": { requires: [{ name: "Milk Bucket", qty: 3 }, { name: "Sugar", qty: 2 }, { name: "Egg", qty: 1 }, { name: "Wheat", qty: 3 }] },
+  "Golden Apple": { requires: [{ name: "Gold Ingot", qty: 8 }, { name: "Apple", qty: 1 }] },
+  "Golden Carrot": { requires: [{ name: "Gold Nugget", qty: 8 }, { name: "Carrot", qty: 1 }] },
+  "Bread": { requires: [{ name: "Wheat", qty: 3 }] },
+
+  // Sub-components (Crucial for the tree to go deep!)
+  "Chest": { requires: [{ name: "Planks", qty: 8 }] },
+  "Book": { requires: [{ name: "Paper", qty: 3 }, { name: "Leather", qty: 1 }] },
+  "Paper": { requires: [{ name: "Sugar Cane", qty: 3 }] },
+  "Blaze Powder": { requires: [{ name: "Blaze Rod", qty: 1 }] },
+  "Stick": { requires: [{ name: "Planks", qty: 2 }] },
+  "Planks": { requires: [{ name: "Log", qty: 1 }] }
 }
 
 export function CraftingForm({ onCreateProject }: { onCreateProject: (name: string) => void }) {
