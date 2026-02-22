@@ -2,15 +2,15 @@
 
 import { useState, useEffect } from "react"
 import { CraftingForm, MOCK_RECIPES } from "@/components/crafting-form"
-import { DependencyTree, netheriteSwordTree } from "@/components/dependency-tree"
+import { DependencyTree } from "@/components/dependency-tree"
 import { ChatBox } from "@/components/chat-box"
 import { Leaderboard } from "@/components/leaderboard"
 import { supabase } from "@/lib/supabase"
 import { Hammer, Server, Trash2, FolderOpen, Pin, ChevronDown, ChevronRight } from "lucide-react"
 
 export default function Home() {
-  // --- VIEW & AUTH STATES ---
-  const [currentView, setCurrentView] = useState<'login' | 'signup' | 'verify' | 'app'>('login')
+  // 1. CHANGED: Default view is now 'signup' for new users!
+  const [currentView, setCurrentView] = useState<'login' | 'signup' | 'verify' | 'app'>('signup')
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [serverID, setServerID] = useState("")
   
@@ -42,7 +42,8 @@ export default function Home() {
     if (!treeOpen) setMyProjectsOpen(false);
   }
 
-  const activeProject = projects.find(p => p.id === activeID) || projects[0]
+  // 2. CHANGED: Safely handle when there are no projects at all
+  const activeProject = projects.find(p => p.id === activeID) || (projects.length > 0 ? projects[0] : null)
   const myProjects = projects.filter(p => p.creator === currentUser?.username)
   const otherProjects = projects.filter(p => p.creator !== currentUser?.username && p.creator !== "SYSTEM")
 
@@ -55,18 +56,28 @@ export default function Home() {
       if (data && data.length > 0) { 
         setProjects(data); setActiveID(data[0].id) 
       } else { 
-        setProjects([{ id: "def", name: "Netherite Sword", creator: "SYSTEM", tree: netheriteSwordTree }]) 
+        // 3. CHANGED: Emptied the default project. No more Netherite Sword!
+        setProjects([]); setActiveID("") 
       }
     }
     loadProjects()
 
     const channel = supabase.channel(`room-${serverID}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'projects', filter: `server_id=eq.${serverID}` }, (payload) => {
-        if (payload.eventType === 'INSERT') setProjects(prev => prev.find(p => p.id === payload.new.id) ? prev : [...prev, payload.new])
+        if (payload.eventType === 'INSERT') {
+          setProjects(prev => {
+            const exists = prev.find(p => p.id === payload.new.id);
+            if (exists) return prev;
+            // Auto-set active if it's the very first project
+            if (prev.length === 0) setActiveID(payload.new.id);
+            return [...prev, payload.new];
+          })
+        }
         else if (payload.eventType === 'UPDATE') setProjects(prev => prev.map(p => p.id === payload.new.id ? payload.new : p))
         else if (payload.eventType === 'DELETE') {
           setProjects(prev => prev.filter(p => p.id !== payload.old.id))
           setPinnedProjects(prev => prev.filter(id => id !== payload.old.id))
+          if (activeID === payload.old.id) setActiveID("")
         }
       }).subscribe()
 
@@ -92,7 +103,7 @@ export default function Home() {
   const handleDeleteProject = async (id: string) => {
     setProjects(prev => prev.filter(x => x.id !== id))
     setPinnedProjects(prev => prev.filter(pId => pId !== id))
-    if (activeID === id) setActiveID(projects[0]?.id || "def")
+    if (activeID === id) setActiveID(projects[0]?.id || "")
     await supabase.from('projects').delete().eq('id', id)
   }
 
@@ -101,12 +112,31 @@ export default function Home() {
   }
 
   // ==========================================
-  // VIEW: 1. LOGIN PAGE (Overworld Background)
+  // VIEW: 1. SIGN UP PAGE (Default View Now!)
+  // ==========================================
+  if (currentView === 'signup') return (
+    <div className="min-h-screen flex items-center justify-center bg-cover bg-center px-4" style={{ backgroundImage: "url('/bg1.jpg')" }}>
+      <div className="absolute inset-0 bg-black/60" />
+      <div className="relative z-10 w-full max-w-md bg-mc-obsidian border-4 border-mc-slot-border p-6 md:p-8 shadow-2xl">
+        <h1 className="text-3xl font-black text-mc-gold uppercase italic text-center mb-8">Join Network</h1>
+        <form onSubmit={(e) => { e.preventDefault(); setCurrentView('verify'); }} className="space-y-4">
+          <input required type="email" placeholder="Email address" value={signupForm.email} onChange={e => setSignupForm({...signupForm, email: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-gold" />
+          <input required placeholder="Username" value={signupForm.user} onChange={e => setSignupForm({...signupForm, user: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-gold" />
+          <input required type="password" placeholder="Password" value={signupForm.pass} onChange={e => setSignupForm({...signupForm, pass: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-gold" />
+          <button type="submit" className="w-full bg-mc-gold hover:bg-yellow-400 text-mc-obsidian font-black py-4 border-b-4 border-yellow-600 transition-all uppercase mt-4">Create account</button>
+        </form>
+        <button onClick={() => setCurrentView('login')} className="mt-6 text-xs text-white/50 hover:text-white uppercase font-bold block text-center w-full">Already have an account? Log in</button>
+      </div>
+    </div>
+  )
+
+  // ==========================================
+  // VIEW: 2. LOGIN PAGE 
   // ==========================================
   if (currentView === 'login') return (
-    <div className="min-h-screen flex items-center justify-center bg-cover bg-center" style={{ backgroundImage: "url('/bg1.jpg')" }}>
+    <div className="min-h-screen flex items-center justify-center bg-cover bg-center px-4" style={{ backgroundImage: "url('/bg1.jpg')" }}>
       <div className="absolute inset-0 bg-black/60" />
-      <div className="relative z-10 w-full max-w-md bg-mc-obsidian border-4 border-mc-slot-border p-8 shadow-2xl">
+      <div className="relative z-10 w-full max-w-md bg-mc-obsidian border-4 border-mc-slot-border p-6 md:p-8 shadow-2xl">
         <h1 className="text-4xl font-black text-mc-grass uppercase italic text-center mb-8">Craft Chain</h1>
         <form onSubmit={(e) => { 
           e.preventDefault(); 
@@ -129,31 +159,12 @@ export default function Home() {
   )
 
   // ==========================================
-  // VIEW: 2. SIGN UP PAGE (Overworld Background)
-  // ==========================================
-  if (currentView === 'signup') return (
-    <div className="min-h-screen flex items-center justify-center bg-cover bg-center" style={{ backgroundImage: "url('/bg1.jpg')" }}>
-      <div className="absolute inset-0 bg-black/60" />
-      <div className="relative z-10 w-full max-w-md bg-mc-obsidian border-4 border-mc-slot-border p-8 shadow-2xl">
-        <h1 className="text-3xl font-black text-mc-gold uppercase italic text-center mb-8">Join Network</h1>
-        <form onSubmit={(e) => { e.preventDefault(); setCurrentView('verify'); }} className="space-y-4">
-          <input required type="email" placeholder="Email address" value={signupForm.email} onChange={e => setSignupForm({...signupForm, email: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-gold" />
-          <input required placeholder="Username" value={signupForm.user} onChange={e => setSignupForm({...signupForm, user: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-gold" />
-          <input required type="password" placeholder="Password" value={signupForm.pass} onChange={e => setSignupForm({...signupForm, pass: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-gold" />
-          <button type="submit" className="w-full bg-mc-gold hover:bg-yellow-400 text-mc-obsidian font-black py-4 border-b-4 border-yellow-600 transition-all uppercase mt-4">Create account</button>
-        </form>
-        <button onClick={() => setCurrentView('login')} className="mt-6 text-xs text-white/50 hover:text-white uppercase font-bold block text-center w-full">Back to Login</button>
-      </div>
-    </div>
-  )
-
-  // ==========================================
-  // VIEW: 3. VERIFICATION PAGE (Overworld Background)
+  // VIEW: 3. VERIFICATION PAGE
   // ==========================================
   if (currentView === 'verify') return (
-    <div className="min-h-screen flex items-center justify-center bg-cover bg-center" style={{ backgroundImage: "url('/bg1.jpg')" }}>
+    <div className="min-h-screen flex items-center justify-center bg-cover bg-center px-4" style={{ backgroundImage: "url('/bg1.jpg')" }}>
       <div className="absolute inset-0 bg-black/60" />
-      <div className="relative z-10 w-full max-w-md bg-mc-obsidian border-4 border-mc-slot-border p-8 shadow-2xl text-center">
+      <div className="relative z-10 w-full max-w-md bg-mc-obsidian border-4 border-mc-slot-border p-6 md:p-8 shadow-2xl text-center">
         <h1 className="text-2xl font-black text-white uppercase italic mb-4">Verify Email</h1>
         <p className="text-xs text-white/70 mb-6">Enter the secret code sent to {signupForm.email || "your email"}.</p>
         <form onSubmit={(e) => { 
@@ -170,30 +181,29 @@ export default function Home() {
   )
 
   // ==========================================
-  // VIEW: 4. MAIN DASHBOARD PAGE (Cave Background)
+  // VIEW: 4. MAIN DASHBOARD PAGE
   // ==========================================
   return (
     <div className="min-h-screen flex flex-col text-white relative z-0">
-      {/* --- CAVE BACKGROUND LAYER --- */}
       <div className="fixed inset-0 bg-cover bg-center z-[-2]" style={{ backgroundImage: "url('/bg2.jpg')" }} />
-      {/* Dark tint overlay so the UI remains readable */}
-      <div className="fixed inset-0 bg-[#0a0f0a]/70" />
+      <div className="fixed inset-0 bg-[#0a0f0a]/80 z-[-1]" />
 
-      <header className="flex items-center gap-3 px-6 py-4 bg-mc-obsidian border-b-4 border-mc-slot-border justify-between sticky top-0 z-40">
+      <header className="flex flex-col md:flex-row md:items-center gap-3 px-4 md:px-6 py-4 bg-mc-obsidian border-b-4 border-mc-slot-border justify-between sticky top-0 z-40">
         <div className="flex flex-col"><h1 className="text-2xl text-mc-grass uppercase font-black italic leading-none">Craft Chain</h1><span className="text-[9px] text-mc-gold uppercase font-bold mt-1 tracking-widest"><Server className="inline w-3 h-3 mr-1"/> {serverID}</span></div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center justify-between md:justify-end gap-4 w-full md:w-auto mt-2 md:mt-0">
           <div className="flex items-center gap-2 bg-mc-slot border-2 border-mc-border px-3 py-1"><img src={currentUser.avatar} className="w-6 h-6 pixelated"/><span className="text-mc-gold text-xs font-bold">{currentUser.username}</span></div>
-          <button onClick={() => setCurrentView('login')} className="text-[10px] text-mc-nether uppercase font-bold hover:underline shadow-sm">Logout</button>
+          <button onClick={() => setCurrentView('login')} className="text-[10px] text-mc-nether uppercase font-bold hover:underline shadow-sm bg-black/40 px-2 py-1 rounded">Logout</button>
         </div>
       </header>
 
-      <main className="grid grid-cols-1 lg:grid-cols-2 gap-6 p-6 max-w-[1800px] mx-auto w-full h-[calc(100vh-80px)] overflow-hidden">
+      {/* 4. CHANGED: Made responsive. On mobile, it scrolls naturally. On Desktop (lg:), it locks the split screen! */}
+      <main className="grid grid-cols-1 lg:grid-cols-2 gap-6 p-4 md:p-6 max-w-[1800px] mx-auto w-full lg:h-[calc(100vh-80px)] lg:overflow-hidden">
         
         {/* LEFT COLUMN */}
-        <div className="flex flex-col gap-6 overflow-y-auto pr-2 pb-20 custom-scrollbar">
+        <div className="flex flex-col gap-6 lg:overflow-y-auto pr-0 md:pr-2 pb-10 lg:pb-20 custom-scrollbar">
           
-          <div className="flex flex-wrap gap-2 p-3 bg-mc-obsidian/80 backdrop-blur-md border-2 border-mc-border min-h-[50px] items-center relative shadow-lg">
-            <span className="text-[10px] font-bold text-mc-gold uppercase px-2 border-r border-mc-border"><Pin className="inline w-3 h-3 mr-1"/> Pinned Projects</span>
+          <div className="flex flex-wrap gap-2 p-3 bg-mc-obsidian/90 border-2 border-mc-border min-h-[50px] items-center relative shadow-lg">
+            <span className="text-[10px] font-bold text-mc-gold uppercase px-2 border-r border-mc-border w-full md:w-auto mb-2 md:mb-0"><Pin className="inline w-3 h-3 mr-1"/> Pinned</span>
             {pinnedProjects.length === 0 && <span className="text-[10px] text-white/30 italic px-2">No projects pinned.</span>}
             
             {pinnedProjects.map(pinId => {
@@ -207,7 +217,7 @@ export default function Home() {
                   <button onClick={() => togglePin(p.id)} className="opacity-50 hover:opacity-100 hover:text-mc-nether"><Pin className="w-3 h-3"/></button>
                   
                   {hoveredPin === p.id && (
-                    <div className="absolute top-full left-0 mt-2 w-64 bg-mc-obsidian border-2 border-mc-border z-50 p-2 shadow-2xl pointer-events-none">
+                    <div className="absolute top-full left-0 mt-2 w-64 bg-mc-obsidian border-2 border-mc-border z-50 p-2 shadow-2xl pointer-events-none hidden md:block">
                        <span className="text-[8px] text-mc-gold block mb-1">Previewing: {p.name}</span>
                        <div className="scale-75 origin-top-left -mb-10"><DependencyTree tree={p.tree} currentUser={null} /></div>
                     </div>
@@ -217,7 +227,7 @@ export default function Home() {
             })}
           </div>
 
-          <div className="border-2 border-mc-border bg-mc-obsidian-bg/90 backdrop-blur-md p-4 shadow-xl">
+          <div className="border-2 border-mc-border bg-mc-obsidian-bg/95 p-4 shadow-xl">
             <h3 className="text-mc-diamond uppercase text-[12px] font-black tracking-widest mb-3 flex items-center gap-2">
               <Hammer className="w-4 h-4"/> Create New Project
             </h3>
@@ -227,13 +237,13 @@ export default function Home() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="flex flex-col gap-4">
               
-              <div className="border-2 border-mc-border bg-mc-obsidian-bg/90 backdrop-blur-md flex flex-col transition-all shadow-xl">
+              <div className="border-2 border-mc-border bg-mc-obsidian-bg/95 flex flex-col transition-all shadow-xl">
                 <div onClick={toggleMyProjects} className="p-3 border-b-2 border-mc-border bg-mc-obsidian flex items-center gap-2 cursor-pointer hover:bg-mc-slot-highlight">
                   {myProjectsOpen ? <ChevronDown className="w-4 h-4 text-mc-grass"/> : <ChevronRight className="w-4 h-4 text-mc-grass"/>}
                   <h3 className="text-mc-grass uppercase text-[10px] font-black tracking-widest">Your Projects</h3>
                 </div>
                 {myProjectsOpen && (
-                  <div className="p-2 overflow-y flex flex-col gap-2 max-h-[300px] custom-scrollbar">
+                  <div className="p-2 overflow-y-auto flex flex-col gap-2 max-h-[300px] custom-scrollbar">
                     {myProjects.length === 0 ? <span className="text-[10px] text-white/30 p-2 text-center block">No projects created yet.</span> : 
                       myProjects.map(p => (
                         <div key={p.id} onClick={() => { setActiveID(p.id); toggleTree(); }} className={`flex items-center justify-between p-2 border border-mc-slot-border bg-mc-slot cursor-pointer ${activeID === p.id ? 'ring-1 ring-mc-grass' : 'hover:bg-mc-slot-highlight'}`}>
@@ -245,23 +255,28 @@ export default function Home() {
                 )}
               </div>
 
-              <div className="border-2 border-mc-border bg-mc-obsidian-bg/90 backdrop-blur-md flex flex-col transition-all shadow-xl">
+              <div className="border-2 border-mc-border bg-mc-obsidian-bg/95 flex flex-col transition-all shadow-xl">
                 <div onClick={toggleTree} className="p-3 border-b-2 border-mc-border bg-mc-obsidian flex items-center gap-2 cursor-pointer hover:bg-mc-slot-highlight">
                   {treeOpen ? <ChevronDown className="w-4 h-4 text-mc-diamond"/> : <ChevronRight className="w-4 h-4 text-mc-diamond"/>}
                   <h3 className="text-mc-diamond uppercase text-[10px] font-black tracking-widest">Project Progress Tree</h3>
                 </div>
                 {treeOpen && (
                   <div className="p-2 max-h-[500px] overflow-y-auto custom-scrollbar">
-                    <DependencyTree tree={activeProject?.tree || netheriteSwordTree} currentUser={currentUser} 
-                      onPointAdded={(pts: number) => { 
-                        setLeaderboard(prev => { 
-                          const e = prev.find(x => x.username === currentUser.username); 
-                          if(e) return prev.map(x => x.username === currentUser.username ? { ...x, points: Math.max(0, x.points + pts) } : x); 
-                          return [...prev, { username: currentUser.username, avatar: currentUser.avatar, points: 1 }] 
-                        }) 
-                      }} 
-                      onTreeUpdate={async (t: any) => { if (activeID && activeID !== "def") { setProjects(prev => prev.map(p => p.id === activeID ? { ...p, tree: t } : p)); await supabase.from('projects').update({ tree: t }).eq('id', activeID) } }} 
-                    />
+                    {/* 5. CHANGED: Safe render if no active project exists! */}
+                    {activeProject ? (
+                      <DependencyTree tree={activeProject.tree} currentUser={currentUser} 
+                        onPointAdded={(pts: number) => { 
+                          setLeaderboard(prev => { 
+                            const e = prev.find(x => x.username === currentUser.username); 
+                            if(e) return prev.map(x => x.username === currentUser.username ? { ...x, points: Math.max(0, x.points + pts) } : x); 
+                            return [...prev, { username: currentUser.username, avatar: currentUser.avatar, points: 1 }] 
+                          }) 
+                        }} 
+                        onTreeUpdate={async (t: any) => { if (activeID) { setProjects(prev => prev.map(p => p.id === activeID ? { ...p, tree: t } : p)); await supabase.from('projects').update({ tree: t }).eq('id', activeID) } }} 
+                      />
+                    ) : (
+                      <div className="text-center p-8 text-white/40 text-[10px] uppercase font-bold">Select or create a project first!</div>
+                    )}
                   </div>
                 )}
               </div>
@@ -269,7 +284,8 @@ export default function Home() {
             </div>
 
             <div className="flex flex-col gap-4">
-              <div className="border-2 border-mc-border bg-mc-obsidian-bg/90 backdrop-blur-md flex flex-col h-[300px] shadow-xl">
+              {/* Changed h-[500px] to max-h-[500px] for better mobile scaling */}
+              <div className="border-2 border-mc-border bg-mc-obsidian-bg/95 flex flex-col h-[300px] md:h-[500px] shadow-xl">
                 <div className="p-3 border-b-2 border-mc-border bg-mc-obsidian flex items-center gap-2">
                   <FolderOpen className="w-4 h-4 text-mc-gold"/>
                   <h3 className="text-mc-gold uppercase text-[10px] font-black tracking-widest">Available Projects</h3>
@@ -290,12 +306,12 @@ export default function Home() {
           </div>
         </div>
         
-        {/* RIGHT COLUMN: Chat & Leaderboard */}
-        <div className="flex flex-col gap-6 h-full pb-6">
+        {/* RIGHT COLUMN: Chat & Leaderboard - Stacks nicely on mobile now! */}
+        <div className="flex flex-col gap-6 h-[600px] lg:h-full pb-6">
           <div className="flex-1 min-h-0 relative shadow-2xl">
             <ChatBox currentUser={currentUser} serverID={serverID} />
           </div>
-          <div className="shrink-0 h-[100px] overflow-hidden shadow-2xl">
+          <div className="shrink-0 h-[150px] overflow-hidden shadow-2xl">
              <Leaderboard data={leaderboard} />
           </div>
         </div>
