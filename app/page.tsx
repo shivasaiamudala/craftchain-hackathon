@@ -9,56 +9,38 @@ import { supabase } from "@/lib/supabase"
 import { Hammer, Server, Trash2, FolderOpen, Pin, ChevronDown, ChevronRight } from "lucide-react"
 
 export default function Home() {
-  // 1. CHANGED: Default view is now 'signup' for new users!
   const [currentView, setCurrentView] = useState<'login' | 'signup' | 'verify' | 'app'>('signup')
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [serverID, setServerID] = useState("")
   
-  // Forms
+  // NEW: Auth Error State to show red warnings!
+  const [authError, setAuthError] = useState("")
+
   const [loginForm, setLoginForm] = useState({ user: "", pass: "", sName: "", sCode: "" })
   const [signupForm, setSignupForm] = useState({ email: "", user: "", pass: "" })
   const [verifyCode, setVerifyCode] = useState("")
 
-  // --- APP STATES ---
   const [projects, setProjects] = useState<any[]>([])
   const [activeID, setActiveID] = useState("")
   const [leaderboard, setLeaderboard] = useState<any[]>([])
-  
-  // UI States
   const [pinnedProjects, setPinnedProjects] = useState<string[]>([])
   const [hoveredPin, setHoveredPin] = useState<string | null>(null)
   
-  // Accordion "Vice Versa" States
   const [myProjectsOpen, setMyProjectsOpen] = useState(false)
   const [treeOpen, setTreeOpen] = useState(true)
 
-  const toggleMyProjects = () => {
-    setMyProjectsOpen(!myProjectsOpen);
-    if (!myProjectsOpen) setTreeOpen(false);
-  }
+  const toggleMyProjects = () => { setMyProjectsOpen(!myProjectsOpen); if (!myProjectsOpen) setTreeOpen(false); }
+  const toggleTree = () => { setTreeOpen(!treeOpen); if (!treeOpen) setMyProjectsOpen(false); }
 
-  const toggleTree = () => {
-    setTreeOpen(!treeOpen);
-    if (!treeOpen) setMyProjectsOpen(false);
-  }
-
-  // 2. CHANGED: Safely handle when there are no projects at all
   const activeProject = projects.find(p => p.id === activeID) || (projects.length > 0 ? projects[0] : null)
   const myProjects = projects.filter(p => p.creator === currentUser?.username)
   const otherProjects = projects.filter(p => p.creator !== currentUser?.username && p.creator !== "SYSTEM")
 
-  // --- REALTIME DATABASE SYNC ---
   useEffect(() => {
     if (currentView !== 'app' || !currentUser || !serverID) return
-
     const loadProjects = async () => {
       const { data } = await supabase.from('projects').select('*').eq('server_id', serverID).order('created_at', { ascending: true })
-      if (data && data.length > 0) { 
-        setProjects(data); setActiveID(data[0].id) 
-      } else { 
-        // 3. CHANGED: Emptied the default project. No more Netherite Sword!
-        setProjects([]); setActiveID("") 
-      }
+      if (data && data.length > 0) { setProjects(data); setActiveID(data[0].id) } else { setProjects([]); setActiveID("") }
     }
     loadProjects()
 
@@ -68,7 +50,6 @@ export default function Home() {
           setProjects(prev => {
             const exists = prev.find(p => p.id === payload.new.id);
             if (exists) return prev;
-            // Auto-set active if it's the very first project
             if (prev.length === 0) setActiveID(payload.new.id);
             return [...prev, payload.new];
           })
@@ -82,9 +63,8 @@ export default function Home() {
       }).subscribe()
 
     return () => { supabase.removeChannel(channel) }
-  }, [currentView, currentUser, serverID])
+  }, [currentView, currentUser, serverID, activeID])
 
-  // --- LOGIC FUNCTIONS ---
   const build = (name: string, q = 1, id = "root"): any => {
     const r = MOCK_RECIPES[name]; if (!r) return { id: `${id}-${name}`, name, quantity: q, status: "pending" }
     return { id: `${id}-${name}`, name, quantity: q, status: "pending", children: r.requires.map((x: any, i: number) => build(x.name, x.qty, `${id}-${i}`)) }
@@ -93,10 +73,7 @@ export default function Home() {
   const handleCreateProject = async (name: string) => {
     const id = `p-${Date.now()}`
     const newProj = { id, server_id: serverID, name, creator: currentUser.username, tree: build(name, 1, id) }
-    setProjects(prev => [...prev, newProj]); 
-    setActiveID(id);
-    setMyProjectsOpen(false);
-    setTreeOpen(true);
+    setProjects(prev => [...prev, newProj]); setActiveID(id); setMyProjectsOpen(false); setTreeOpen(true);
     await supabase.from('projects').insert([newProj])
   }
 
@@ -107,25 +84,90 @@ export default function Home() {
     await supabase.from('projects').delete().eq('id', id)
   }
 
-  const togglePin = (id: string) => {
-    setPinnedProjects(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id])
-  }
+  const togglePin = (id: string) => setPinnedProjects(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id])
 
   // ==========================================
-  // VIEW: 1. SIGN UP PAGE (Default View Now!)
+  // AUTHENTICATION LOGIC
+  // ==========================================
+  
+  const handleSignupSubmit = async (e: any) => {
+    e.preventDefault();
+    setAuthError(""); // Clear old errors
+    
+    // 1. Check if username or email already exists in DB
+    const { data } = await supabase.from('users').select('*').or(`email.eq.${signupForm.email},username.eq.${signupForm.user}`);
+    
+    if (data && data.length > 0) {
+      setAuthError("Email or Username is already taken!");
+      return;
+    }
+    
+    // If it's unique, move to verify screen
+    setCurrentView('verify');
+  }
+
+  const handleVerifySubmit = async (e: any) => {
+    e.preventDefault();
+    setAuthError("");
+    
+    // 2. Save the new user to the database!
+    const { error } = await supabase.from('users').insert([{
+      email: signupForm.email,
+      username: signupForm.user,
+      password: signupForm.pass // Saving directly for hackathon speed
+    }]);
+
+    if (error) {
+      setAuthError("Failed to create account. Try again.");
+      return;
+    }
+
+    setServerID("New-Server"); 
+    setCurrentUser({ username: signupForm.user, avatar: `https://api.mineatar.io/face/${signupForm.user}` }); 
+    setCurrentView('app');
+  }
+
+  const handleLoginSubmit = async (e: any) => {
+    e.preventDefault();
+    setAuthError("");
+
+    // 3. Check if the username and password match a row in the DB!
+    const { data } = await supabase.from('users')
+      .select('*')
+      .eq('username', loginForm.user)
+      .eq('password', loginForm.pass);
+
+    if (data && data.length > 0) {
+      // Success! They matched!
+      setServerID(loginForm.sCode); 
+      setCurrentUser({ username: data[0].username, avatar: `https://api.mineatar.io/face/${data[0].username}` }); 
+      setCurrentView('app'); 
+    } else {
+      // Failed!
+      setAuthError("Invalid Username or Password!");
+    }
+  }
+
+
+  // ==========================================
+  // VIEW: 1. SIGN UP PAGE 
   // ==========================================
   if (currentView === 'signup') return (
     <div className="min-h-screen flex items-center justify-center bg-cover bg-center px-4" style={{ backgroundImage: "url('/bg1.jpg')" }}>
       <div className="absolute inset-0 bg-black/60" />
       <div className="relative z-10 w-full max-w-md bg-mc-obsidian border-4 border-mc-slot-border p-6 md:p-8 shadow-2xl">
         <h1 className="text-3xl font-black text-mc-gold uppercase italic text-center mb-8">Join Network</h1>
-        <form onSubmit={(e) => { e.preventDefault(); setCurrentView('verify'); }} className="space-y-4">
+        
+        {/* Error Box */}
+        {authError && <div className="bg-red-900/50 border-2 border-mc-nether text-white text-xs font-bold p-2 mb-4 text-center uppercase">{authError}</div>}
+        
+        <form onSubmit={handleSignupSubmit} className="space-y-4">
           <input required type="email" placeholder="Email address" value={signupForm.email} onChange={e => setSignupForm({...signupForm, email: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-gold" />
           <input required placeholder="Username" value={signupForm.user} onChange={e => setSignupForm({...signupForm, user: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-gold" />
           <input required type="password" placeholder="Password" value={signupForm.pass} onChange={e => setSignupForm({...signupForm, pass: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-gold" />
           <button type="submit" className="w-full bg-mc-gold hover:bg-yellow-400 text-mc-obsidian font-black py-4 border-b-4 border-yellow-600 transition-all uppercase mt-4">Create account</button>
         </form>
-        <button onClick={() => setCurrentView('login')} className="mt-6 text-xs text-white/50 hover:text-white uppercase font-bold block text-center w-full">Already have an account? Log in</button>
+        <button onClick={() => { setAuthError(""); setCurrentView('login'); }} className="mt-6 text-xs text-white/50 hover:text-white uppercase font-bold block text-center w-full">Already have an account? Log in</button>
       </div>
     </div>
   )
@@ -138,12 +180,11 @@ export default function Home() {
       <div className="absolute inset-0 bg-black/60" />
       <div className="relative z-10 w-full max-w-md bg-mc-obsidian border-4 border-mc-slot-border p-6 md:p-8 shadow-2xl">
         <h1 className="text-4xl font-black text-mc-grass uppercase italic text-center mb-8">Craft Chain</h1>
-        <form onSubmit={(e) => { 
-          e.preventDefault(); 
-          setServerID(loginForm.sCode); 
-          setCurrentUser({ username: loginForm.user, avatar: `https://api.mineatar.io/face/${loginForm.user}` }); 
-          setCurrentView('app'); 
-        }} className="space-y-4">
+        
+        {/* Error Box */}
+        {authError && <div className="bg-red-900/50 border-2 border-mc-nether text-white text-xs font-bold p-2 mb-4 text-center uppercase">{authError}</div>}
+        
+        <form onSubmit={handleLoginSubmit} className="space-y-4">
           <input required placeholder="Username" value={loginForm.user} onChange={e => setLoginForm({...loginForm, user: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-grass" />
           <input required type="password" placeholder="Password" value={loginForm.pass} onChange={e => setLoginForm({...loginForm, pass: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-grass" />
           <input required placeholder="Server Name" value={loginForm.sName} onChange={e => setLoginForm({...loginForm, sName: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-grass" />
@@ -151,7 +192,7 @@ export default function Home() {
           <button type="submit" className="w-full bg-mc-grass hover:bg-mc-grass/80 text-mc-obsidian font-black py-4 border-b-4 border-mc-stone transition-all uppercase mt-4">Log in</button>
         </form>
         <div className="mt-6 flex justify-between text-xs font-bold text-mc-gold uppercase">
-          <button onClick={() => setCurrentView('signup')} className="hover:text-white hover:underline">Create new account</button>
+          <button onClick={() => { setAuthError(""); setCurrentView('signup'); }} className="hover:text-white hover:underline">Create new account</button>
           <button className="hover:text-white hover:underline opacity-50">Forget password</button>
         </div>
       </div>
@@ -167,12 +208,10 @@ export default function Home() {
       <div className="relative z-10 w-full max-w-md bg-mc-obsidian border-4 border-mc-slot-border p-6 md:p-8 shadow-2xl text-center">
         <h1 className="text-2xl font-black text-white uppercase italic mb-4">Verify Email</h1>
         <p className="text-xs text-white/70 mb-6">Enter the secret code sent to {signupForm.email || "your email"}.</p>
-        <form onSubmit={(e) => { 
-          e.preventDefault(); 
-          setServerID("New-Server"); 
-          setCurrentUser({ username: signupForm.user || "NewPlayer", avatar: `https://api.mineatar.io/face/${signupForm.user || "Steve"}` }); 
-          setCurrentView('app'); 
-        }} className="space-y-4">
+        
+        {authError && <div className="bg-red-900/50 border-2 border-mc-nether text-white text-xs font-bold p-2 mb-4 text-center uppercase">{authError}</div>}
+        
+        <form onSubmit={handleVerifySubmit} className="space-y-4">
           <input required placeholder="000000" value={verifyCode} onChange={e => setVerifyCode(e.target.value)} className="w-full bg-mc-input border-2 border-mc-border p-4 text-center text-2xl text-white outline-none focus:border-mc-diamond tracking-widest font-black" />
           <button type="submit" className="w-full bg-mc-diamond hover:bg-blue-400 text-mc-obsidian font-black py-4 border-b-4 border-blue-600 transition-all uppercase mt-4">Verify & Play</button>
         </form>
@@ -192,15 +231,14 @@ export default function Home() {
         <div className="flex flex-col"><h1 className="text-2xl text-mc-grass uppercase font-black italic leading-none">Craft Chain</h1><span className="text-[9px] text-mc-gold uppercase font-bold mt-1 tracking-widest"><Server className="inline w-3 h-3 mr-1"/> {serverID}</span></div>
         <div className="flex items-center justify-between md:justify-end gap-4 w-full md:w-auto mt-2 md:mt-0">
           <div className="flex items-center gap-2 bg-mc-slot border-2 border-mc-border px-3 py-1"><img src={currentUser.avatar} className="w-6 h-6 pixelated"/><span className="text-mc-gold text-xs font-bold">{currentUser.username}</span></div>
-          <button onClick={() => setCurrentView('login')} className="text-[10px] text-mc-nether uppercase font-bold hover:underline shadow-sm bg-black/40 px-2 py-1 rounded">Logout</button>
+          <button onClick={() => { setCurrentUser(null); setCurrentView('login'); }} className="text-[10px] text-mc-nether uppercase font-bold hover:underline shadow-sm bg-black/40 px-2 py-1 rounded">Logout</button>
         </div>
       </header>
 
-      {/* 4. CHANGED: Made responsive. On mobile, it scrolls naturally. On Desktop (lg:), it locks the split screen! */}
-      <main className="grid grid-cols-1 lg:grid-cols-2 gap-6 p-4 md:p-6 max-w-[1800px] mx-auto w-full lg:h-[calc(100vh-80px)] lg:overflow-hidden">
+      <main className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 p-4 md:p-6 max-w-[1800px] mx-auto w-full md:h-[calc(100vh-80px)] md:overflow-hidden">
         
         {/* LEFT COLUMN */}
-        <div className="flex flex-col gap-6 lg:overflow-y-auto pr-0 md:pr-2 pb-10 lg:pb-20 custom-scrollbar">
+        <div className="flex flex-col gap-4 md:gap-6 md:overflow-y-auto pr-0 md:pr-2 pb-10 md:pb-20 custom-scrollbar">
           
           <div className="flex flex-wrap gap-2 p-3 bg-mc-obsidian/90 border-2 border-mc-border min-h-[50px] items-center relative shadow-lg">
             <span className="text-[10px] font-bold text-mc-gold uppercase px-2 border-r border-mc-border w-full md:w-auto mb-2 md:mb-0"><Pin className="inline w-3 h-3 mr-1"/> Pinned</span>
@@ -234,80 +272,70 @@ export default function Home() {
             <CraftingForm onCreateProject={handleCreateProject} />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="flex flex-col gap-4">
-              
-              <div className="border-2 border-mc-border bg-mc-obsidian-bg/95 flex flex-col transition-all shadow-xl">
-                <div onClick={toggleMyProjects} className="p-3 border-b-2 border-mc-border bg-mc-obsidian flex items-center gap-2 cursor-pointer hover:bg-mc-slot-highlight">
-                  {myProjectsOpen ? <ChevronDown className="w-4 h-4 text-mc-grass"/> : <ChevronRight className="w-4 h-4 text-mc-grass"/>}
-                  <h3 className="text-mc-grass uppercase text-[10px] font-black tracking-widest">Your Projects</h3>
-                </div>
-                {myProjectsOpen && (
-                  <div className="p-2 overflow-y-auto flex flex-col gap-2 max-h-[300px] custom-scrollbar">
-                    {myProjects.length === 0 ? <span className="text-[10px] text-white/30 p-2 text-center block">No projects created yet.</span> : 
-                      myProjects.map(p => (
-                        <div key={p.id} onClick={() => { setActiveID(p.id); toggleTree(); }} className={`flex items-center justify-between p-2 border border-mc-slot-border bg-mc-slot cursor-pointer ${activeID === p.id ? 'ring-1 ring-mc-grass' : 'hover:bg-mc-slot-highlight'}`}>
-                          <span className="text-xs font-bold truncate">{p.name}</span>
-                          <Trash2 onClick={(e) => { e.stopPropagation(); handleDeleteProject(p.id) }} className="w-3 h-3 hover:text-mc-nether text-white/40"/>
-                        </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="border-2 border-mc-border bg-mc-obsidian-bg/95 flex flex-col transition-all shadow-xl">
-                <div onClick={toggleTree} className="p-3 border-b-2 border-mc-border bg-mc-obsidian flex items-center gap-2 cursor-pointer hover:bg-mc-slot-highlight">
-                  {treeOpen ? <ChevronDown className="w-4 h-4 text-mc-diamond"/> : <ChevronRight className="w-4 h-4 text-mc-diamond"/>}
-                  <h3 className="text-mc-diamond uppercase text-[10px] font-black tracking-widest">Project Progress Tree</h3>
-                </div>
-                {treeOpen && (
-                  <div className="p-2 max-h-[500px] overflow-y-auto custom-scrollbar">
-                    {/* 5. CHANGED: Safe render if no active project exists! */}
-                    {activeProject ? (
-                      <DependencyTree tree={activeProject.tree} currentUser={currentUser} 
-                        onPointAdded={(pts: number) => { 
-                          setLeaderboard(prev => { 
-                            const e = prev.find(x => x.username === currentUser.username); 
-                            if(e) return prev.map(x => x.username === currentUser.username ? { ...x, points: Math.max(0, x.points + pts) } : x); 
-                            return [...prev, { username: currentUser.username, avatar: currentUser.avatar, points: 1 }] 
-                          }) 
-                        }} 
-                        onTreeUpdate={async (t: any) => { if (activeID) { setProjects(prev => prev.map(p => p.id === activeID ? { ...p, tree: t } : p)); await supabase.from('projects').update({ tree: t }).eq('id', activeID) } }} 
-                      />
-                    ) : (
-                      <div className="text-center p-8 text-white/40 text-[10px] uppercase font-bold">Select or create a project first!</div>
-                    )}
-                  </div>
-                )}
-              </div>
-
+          <div className="border-2 border-mc-border bg-mc-obsidian-bg/95 flex flex-col transition-all shadow-xl">
+            <div onClick={toggleMyProjects} className="p-3 border-b-2 border-mc-border bg-mc-obsidian flex items-center gap-2 cursor-pointer hover:bg-mc-slot-highlight">
+              {myProjectsOpen ? <ChevronDown className="w-4 h-4 text-mc-grass"/> : <ChevronRight className="w-4 h-4 text-mc-grass"/>}
+              <h3 className="text-mc-grass uppercase text-[10px] font-black tracking-widest">Your Projects</h3>
             </div>
-
-            <div className="flex flex-col gap-4">
-              {/* Changed h-[500px] to max-h-[500px] for better mobile scaling */}
-              <div className="border-2 border-mc-border bg-mc-obsidian-bg/95 flex flex-col h-[300px] md:h-[500px] shadow-xl">
-                <div className="p-3 border-b-2 border-mc-border bg-mc-obsidian flex items-center gap-2">
-                  <FolderOpen className="w-4 h-4 text-mc-gold"/>
-                  <h3 className="text-mc-gold uppercase text-[10px] font-black tracking-widest">Available Projects</h3>
-                </div>
-                <div className="p-2 overflow-y-auto flex flex-col gap-2 custom-scrollbar">
-                  {otherProjects.length === 0 ? <span className="text-[10px] text-white/30 p-2 text-center block mt-10">No active projects from others.</span> : 
-                    otherProjects.map(p => (
-                      <div key={p.id} onClick={() => { setActiveID(p.id); setMyProjectsOpen(false); setTreeOpen(true); }} className={`flex items-center justify-between p-2 border border-mc-slot-border bg-mc-slot cursor-pointer ${activeID === p.id ? 'ring-1 ring-mc-gold' : 'hover:bg-mc-slot-highlight'}`}>
-                        <div className="flex flex-col"><span className="text-xs font-bold truncate">{p.name}</span><span className="text-[8px] text-white/40 uppercase block truncate">By: {p.creator}</span></div>
-                        <button onClick={(e) => { e.stopPropagation(); togglePin(p.id) }} className={`w-5 h-5 flex items-center justify-center border border-mc-border hover:bg-white/10 ${pinnedProjects.includes(p.id) ? 'bg-mc-gold text-black' : 'text-white/40'}`}>
-                          <Pin className="w-3 h-3"/>
-                        </button>
-                      </div>
-                  ))}
-                </div>
+            {myProjectsOpen && (
+              <div className="p-2 overflow-y-auto flex flex-col gap-2 max-h-[300px] custom-scrollbar">
+                {myProjects.length === 0 ? <span className="text-[10px] text-white/30 p-2 text-center block">No projects created yet.</span> : 
+                  myProjects.map(p => (
+                    <div key={p.id} onClick={() => { setActiveID(p.id); toggleTree(); }} className={`flex items-center justify-between p-2 border border-mc-slot-border bg-mc-slot cursor-pointer ${activeID === p.id ? 'ring-1 ring-mc-grass' : 'hover:bg-mc-slot-highlight'}`}>
+                      <span className="text-xs font-bold truncate">{p.name}</span>
+                      <Trash2 onClick={(e) => { e.stopPropagation(); handleDeleteProject(p.id) }} className="w-3 h-3 hover:text-mc-nether text-white/40"/>
+                    </div>
+                ))}
               </div>
+            )}
+          </div>
+
+          <div className="border-2 border-mc-border bg-mc-obsidian-bg/95 flex flex-col transition-all shadow-xl">
+            <div onClick={toggleTree} className="p-3 border-b-2 border-mc-border bg-mc-obsidian flex items-center gap-2 cursor-pointer hover:bg-mc-slot-highlight">
+              {treeOpen ? <ChevronDown className="w-4 h-4 text-mc-diamond"/> : <ChevronRight className="w-4 h-4 text-mc-diamond"/>}
+              <h3 className="text-mc-diamond uppercase text-[10px] font-black tracking-widest">Project Progress Tree</h3>
+            </div>
+            {treeOpen && (
+              <div className="p-2 max-h-[500px] overflow-y-auto custom-scrollbar">
+                {activeProject ? (
+                  <DependencyTree tree={activeProject.tree} currentUser={currentUser} 
+                    onPointAdded={(pts: number) => { 
+                      setLeaderboard(prev => { 
+                        const e = prev.find(x => x.username === currentUser.username); 
+                        if(e) return prev.map(x => x.username === currentUser.username ? { ...x, points: Math.max(0, x.points + pts) } : x); 
+                        return [...prev, { username: currentUser.username, avatar: currentUser.avatar, points: 1 }] 
+                      }) 
+                    }} 
+                    onTreeUpdate={async (t: any) => { if (activeID) { setProjects(prev => prev.map(p => p.id === activeID ? { ...p, tree: t } : p)); await supabase.from('projects').update({ tree: t }).eq('id', activeID) } }} 
+                  />
+                ) : (
+                  <div className="text-center p-8 text-white/40 text-[10px] uppercase font-bold">Select or create a project first!</div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="border-2 border-mc-border bg-mc-obsidian-bg/95 flex flex-col h-[250px] md:h-[400px] shadow-xl">
+            <div className="p-3 border-b-2 border-mc-border bg-mc-obsidian flex items-center gap-2">
+              <FolderOpen className="w-4 h-4 text-mc-gold"/>
+              <h3 className="text-mc-gold uppercase text-[10px] font-black tracking-widest">Available Projects</h3>
+            </div>
+            <div className="p-2 overflow-y-auto flex flex-col gap-2 custom-scrollbar">
+              {otherProjects.length === 0 ? <span className="text-[10px] text-white/30 p-2 text-center block mt-10">No active projects from others.</span> : 
+                otherProjects.map(p => (
+                  <div key={p.id} onClick={() => { setActiveID(p.id); setMyProjectsOpen(false); setTreeOpen(true); }} className={`flex items-center justify-between p-2 border border-mc-slot-border bg-mc-slot cursor-pointer ${activeID === p.id ? 'ring-1 ring-mc-gold' : 'hover:bg-mc-slot-highlight'}`}>
+                    <div className="flex flex-col"><span className="text-xs font-bold truncate">{p.name}</span><span className="text-[8px] text-white/40 uppercase block truncate">By: {p.creator}</span></div>
+                    <button onClick={(e) => { e.stopPropagation(); togglePin(p.id) }} className={`w-5 h-5 flex items-center justify-center border border-mc-border hover:bg-white/10 ${pinnedProjects.includes(p.id) ? 'bg-mc-gold text-black' : 'text-white/40'}`}>
+                      <Pin className="w-3 h-3"/>
+                    </button>
+                  </div>
+              ))}
             </div>
           </div>
         </div>
         
-        {/* RIGHT COLUMN: Chat & Leaderboard - Stacks nicely on mobile now! */}
-        <div className="flex flex-col gap-6 h-[600px] lg:h-full pb-6">
+        {/* RIGHT COLUMN */}
+        <div className="flex flex-col gap-4 md:gap-6 h-[500px] md:h-full pb-6">
           <div className="flex-1 min-h-0 relative shadow-2xl">
             <ChatBox currentUser={currentUser} serverID={serverID} />
           </div>
