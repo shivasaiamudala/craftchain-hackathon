@@ -1,12 +1,12 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { CraftingForm, MOCK_RECIPES } from "@/components/crafting-form"
 import { DependencyTree } from "@/components/dependency-tree"
 import { ChatBox } from "@/components/chat-box"
 import { Leaderboard } from "@/components/leaderboard"
 import { supabase } from "@/lib/supabase"
-import { Hammer, Server, Trash2, FolderOpen, Pin, ChevronDown, ChevronRight } from "lucide-react"
+import { Hammer, Server, Trash2, FolderOpen, Pin, ChevronDown, ChevronRight, Activity, Zap, AlertTriangle } from "lucide-react"
 
 export default function Home() {
   const [currentView, setCurrentView] = useState<'login' | 'signup' | 'app'>('signup')
@@ -22,6 +22,7 @@ export default function Home() {
   const [leaderboard, setLeaderboard] = useState<any[]>([])
   const [pinnedProjects, setPinnedProjects] = useState<string[]>([])
   const [hoveredPin, setHoveredPin] = useState<string | null>(null)
+  const [activityFeed, setActivityFeed] = useState<any[]>([])
   
   const [myProjectsOpen, setMyProjectsOpen] = useState(false)
   const [treeOpen, setTreeOpen] = useState(true)
@@ -32,6 +33,22 @@ export default function Home() {
   const activeProject = projects.find(p => p.id === activeID) || (projects.length > 0 ? projects[0] : null)
   const myProjects = projects.filter(p => p.creator === currentUser?.username)
   const otherProjects = projects.filter(p => p.creator !== currentUser?.username && p.creator !== "SYSTEM")
+
+  // --- INTELLIGENCE: BOTTLENECK DETECTOR ---
+  // Scans the active tree and finds the PENDING item required in the highest quantity
+  const bottleneck = useMemo(() => {
+    if (!activeProject) return null;
+    const counts: Record<string, number> = {};
+    const traverse = (node: any) => {
+      if (node.status === "pending") {
+        counts[node.name] = (counts[node.name] || 0) + node.quantity;
+      }
+      node.children?.forEach(traverse);
+    };
+    traverse(activeProject.tree);
+    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    return sorted.length > 0 ? { name: sorted[0][0], qty: sorted[0][1] } : null;
+  }, [activeProject]);
 
   useEffect(() => {
     if (currentView !== 'app' || !currentUser || !serverID) return
@@ -49,9 +66,14 @@ export default function Home() {
             if (exists) return prev;
             if (prev.length === 0) setActiveID(payload.new.id);
             return [...prev, payload.new];
-          })
+          });
+          setActivityFeed(prev => [{ type: 'create', user: payload.new.creator, item: payload.new.name, time: new Date() }, ...prev].slice(0, 5));
         }
-        else if (payload.eventType === 'UPDATE') setProjects(prev => prev.map(p => p.id === payload.new.id ? payload.new : p))
+        else if (payload.eventType === 'UPDATE') {
+          setProjects(prev => prev.map(p => p.id === payload.new.id ? payload.new : p));
+          // Intelligence: Determine if something was completed
+          setActivityFeed(prev => [{ type: 'update', user: 'Team', item: payload.new.name, time: new Date() }, ...prev].slice(0, 5));
+        }
         else if (payload.eventType === 'DELETE') {
           setProjects(prev => prev.filter(p => p.id !== payload.old.id))
           setPinnedProjects(prev => prev.filter(id => id !== payload.old.id))
@@ -91,9 +113,7 @@ export default function Home() {
       password: signupForm.pass,
       options: { data: { username: signupForm.user } }
     });
-    
     if (error) { setAuthError(error.message); return; }
-    
     setServerID(signupForm.sCode);
     setCurrentUser({ username: signupForm.user, avatar: `https://api.mineatar.io/face/${signupForm.user}` }); 
     setCurrentView('app'); 
@@ -106,9 +126,7 @@ export default function Home() {
       email: loginForm.email,
       password: loginForm.pass,
     });
-
     if (error) { setAuthError("Invalid Email or Password!"); return; }
-
     const username = data.user.user_metadata.username || "Player";
     setServerID(loginForm.sCode); 
     setCurrentUser({ username: username, avatar: `https://api.mineatar.io/face/${username}` }); 
@@ -121,13 +139,10 @@ export default function Home() {
     setCurrentView('login');
   }
 
-  // ==========================================
-  // VIEW: 1. SIGN UP PAGE
-  // ==========================================
   if (currentView === 'signup') return (
     <div className="min-h-screen flex items-center justify-center bg-cover bg-center px-4" style={{ backgroundImage: "url('/bg1.jpg')" }}>
       <div className="absolute inset-0 bg-black/60" />
-      <div className="relative z-10 w-full max-w-md bg-mc-obsidian border-4 border-mc-slot-border p-6 md:p-8 shadow-2xl">
+      <div className="relative z-10 w-full max-w-md bg-mc-obsidian border-4 border-mc-slot-border p-8 shadow-2xl">
         <h1 className="text-3xl font-black text-mc-gold uppercase italic text-center mb-8">Join Network</h1>
         {authError && <div className="bg-red-900/50 border-2 border-mc-nether text-white text-xs font-bold p-2 mb-4 text-center uppercase">{authError}</div>}
         <form onSubmit={handleSignupSubmit} className="space-y-4">
@@ -143,13 +158,10 @@ export default function Home() {
     </div>
   )
 
-  // ==========================================
-  // VIEW: 2. LOGIN PAGE 
-  // ==========================================
   if (currentView === 'login') return (
     <div className="min-h-screen flex items-center justify-center bg-cover bg-center px-4" style={{ backgroundImage: "url('/bg1.jpg')" }}>
       <div className="absolute inset-0 bg-black/60" />
-      <div className="relative z-10 w-full max-w-md bg-mc-obsidian border-4 border-mc-slot-border p-6 md:p-8 shadow-2xl">
+      <div className="relative z-10 w-full max-w-md bg-mc-obsidian border-4 border-mc-slot-border p-8 shadow-2xl">
         <h1 className="text-4xl font-black text-mc-grass uppercase italic text-center mb-8">Craft Chain</h1>
         {authError && <div className="bg-red-900/50 border-2 border-mc-nether text-white text-xs font-bold p-2 mb-4 text-center uppercase">{authError}</div>}
         <form onSubmit={handleLoginSubmit} className="space-y-4">
@@ -167,9 +179,6 @@ export default function Home() {
     </div>
   )
 
-  // ==========================================
-  // VIEW: 3. MAIN DASHBOARD PAGE
-  // ==========================================
   return (
     <div className="min-h-screen flex flex-col text-white relative z-0">
       <div className="fixed inset-0 bg-cover bg-center z-[-2]" style={{ backgroundImage: "url('/bg2.jpg')" }} />
@@ -196,17 +205,15 @@ export default function Home() {
               const p = projects.find(x => x.id === pinId)
               if (!p) return null
               return (
-                <div key={pinId} 
-                  onMouseEnter={() => setHoveredPin(p.id)} onMouseLeave={() => setHoveredPin(null)}
-                  className={`relative flex items-center gap-2 px-3 py-1 border-2 text-[10px] font-bold uppercase transition-all cursor-pointer ${activeID === p.id ? 'border-mc-grass bg-mc-grass/20 text-mc-grass' : 'border-mc-border bg-black/40 text-white hover:border-mc-gold'}`}>
-                  <span onClick={() => { setActiveID(p.id); setMyProjectsOpen(false); setTreeOpen(true); }}>{p.name}</span>
-                  <button onClick={() => togglePin(p.id)} className="opacity-50 hover:opacity-100 hover:text-mc-nether"><Pin className="w-3 h-3"/></button>
-                  
-                  {/* FIX 2: Added invisible "pt-2" bridge, removed pointer-events-none, added scrolling! */}
+                <div key={pinId} className="relative group" onMouseEnter={() => setHoveredPin(p.id)} onMouseLeave={() => setHoveredPin(null)}>
+                  <div className={`flex items-center gap-2 px-3 py-1 border-2 text-[10px] font-bold uppercase transition-all cursor-pointer ${activeID === p.id ? 'border-mc-grass bg-mc-grass/20 text-mc-grass' : 'border-mc-border bg-black/40 text-white hover:border-mc-gold'}`}>
+                    <span onClick={() => { setActiveID(p.id); setMyProjectsOpen(false); setTreeOpen(true); }}>{p.name}</span>
+                    <button onClick={() => togglePin(p.id)} className="opacity-50 hover:opacity-100 hover:text-mc-nether"><Pin className="w-3 h-3"/></button>
+                  </div>
                   {hoveredPin === p.id && (
                     <div className="absolute top-full left-0 pt-2 w-72 z-50 hidden md:block">
-                      <div className="bg-mc-obsidian border-2 border-mc-border p-2 shadow-2xl max-h-[350px] overflow-y-auto custom-scrollbar">
-                        <span className="text-[8px] text-mc-gold block mb-1">Previewing: {p.name}</span>
+                      <div className="bg-mc-obsidian border-4 border-mc-slot-border p-3 shadow-2xl max-h-[350px] overflow-y-auto custom-scrollbar ring-2 ring-black">
+                        <span className="text-[8px] text-mc-gold block mb-2 border-b border-mc-border pb-1">Recipe Preview: {p.name}</span>
                         <div className="scale-75 origin-top-left w-[133%] pb-6"><DependencyTree tree={p.tree} currentUser={null} /></div>
                       </div>
                     </div>
@@ -232,7 +239,6 @@ export default function Home() {
               <div className="p-2 overflow-y-auto flex flex-col gap-2 max-h-[300px] custom-scrollbar">
                 {myProjects.length === 0 ? <span className="text-[10px] text-white/30 p-2 text-center block">No projects created yet.</span> : 
                   myProjects.map(p => (
-                    // FIX 1: Clicking any project completely forces the tree open now!
                     <div key={p.id} onClick={() => { setActiveID(p.id); setMyProjectsOpen(false); setTreeOpen(true); }} className={`flex items-center justify-between p-2 border border-mc-slot-border bg-mc-slot cursor-pointer ${activeID === p.id ? 'ring-1 ring-mc-grass' : 'hover:bg-mc-slot-highlight'}`}>
                       <span className="text-xs font-bold truncate">{p.name}</span>
                       <Trash2 onClick={(e) => { e.stopPropagation(); handleDeleteProject(p.id) }} className="w-3 h-3 hover:text-mc-nether text-white/40"/>
@@ -250,7 +256,7 @@ export default function Home() {
             {treeOpen && (
               <div className="p-2 max-h-[500px] overflow-y-auto custom-scrollbar">
                 {activeProject ? (
-                  <DependencyTree tree={activeProject.tree} currentUser={currentUser} 
+                  <DependencyTree key={activeID} tree={activeProject.tree} currentUser={currentUser} 
                     onPointAdded={(pts: number) => { 
                       setLeaderboard(prev => { 
                         const e = prev.find(x => x.username === currentUser.username); 
@@ -287,10 +293,54 @@ export default function Home() {
         </div>
         
         {/* RIGHT COLUMN */}
-        <div className="flex flex-col gap-4 md:gap-6 h-[500px] md:h-full pb-6">
+        <div className="flex flex-col gap-4 md:gap-6 h-[900px] md:h-full pb-6">
           <div className="flex-1 min-h-0 relative shadow-2xl">
             <ChatBox currentUser={currentUser} serverID={serverID} />
           </div>
+
+          {/* COLLABORATION & INTELLIGENCE HUB */}
+          <div className="shrink-0 h-[300px] flex flex-col gap-3">
+             
+             {/* 1. ACTIVITY FEED */}
+             <div className="flex-1 bg-mc-obsidian border-2 border-mc-border p-3 shadow-xl overflow-hidden flex flex-col">
+                <h4 className="text-mc-diamond text-[9px] font-black uppercase tracking-widest mb-2 flex items-center gap-2">
+                  <Activity className="w-3 h-3" /> Live Network Feed
+                </h4>
+                <div className="flex-1 overflow-y-auto space-y-2 custom-scrollbar pr-1">
+                  {activityFeed.length === 0 && <span className="text-[8px] text-white/20 uppercase italic">Waiting for team activity...</span>}
+                  {activityFeed.map((act, i) => (
+                    <div key={i} className="flex items-center justify-between text-[8px] border-b border-mc-border/30 pb-1 animate-in fade-in slide-in-from-left duration-500">
+                      <div className="flex items-center gap-2">
+                         <span className="text-mc-gold font-bold">{act.user}</span>
+                         <span className="text-white/60">{act.type === 'create' ? 'initiated' : 'updated'}</span>
+                         <span className="text-white font-bold">{act.item}</span>
+                      </div>
+                      <span className="text-[6px] text-white/20">{act.time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
+                  ))}
+                </div>
+             </div>
+
+             {/* 2. BOTTLENECK DETECTOR */}
+             <div className="h-[100px] bg-mc-obsidian border-2 border-mc-nether p-3 shadow-xl relative overflow-hidden group">
+                <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-100 transition-opacity">
+                   <AlertTriangle className="w-8 h-8 text-mc-nether animate-pulse" />
+                </div>
+                <h4 className="text-mc-nether text-[9px] font-black uppercase tracking-widest mb-1 flex items-center gap-2">
+                   <Zap className="w-3 h-3" /> Bottleneck Alert
+                </h4>
+                {bottleneck ? (
+                  <div className="flex items-end gap-3">
+                    <span className="text-xl font-black text-white leading-none truncate">{bottleneck.name}</span>
+                    <span className="text-[9px] text-mc-nether uppercase font-black bg-mc-nether/20 px-1 border border-mc-nether">Needs x{bottleneck.qty}</span>
+                  </div>
+                ) : (
+                  <span className="text-[8px] text-white/40 italic">Chain is clear. All resources secured.</span>
+                )}
+                <p className="text-[7px] text-white/30 uppercase mt-1 tracking-tighter">Blocking the most progress in active tree</p>
+             </div>
+          </div>
+
           <div className="shrink-0 h-[150px] overflow-hidden shadow-2xl">
              <Leaderboard data={leaderboard} />
           </div>
