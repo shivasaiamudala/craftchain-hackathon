@@ -15,8 +15,7 @@ export default function Home() {
   const [serverID, setServerID] = useState("")
   const [authError, setAuthError] = useState("")
 
-  const [loginForm, setLoginForm] = useState({ email: "", pass: "", sName: "", sCode: "" })
-  const [signupForm, setSignupForm] = useState({ email: "", user: "", pass: "" })
+  const [signupForm, setSignupForm] = useState({ email: "", user: "", pass: "", sName: "", sCode: "" })  const [signupForm, setSignupForm] = useState({ email: "", user: "", pass: "" })
 
   const [projects, setProjects] = useState<any[]>([])
   const [activeID, setActiveID] = useState("")
@@ -107,7 +106,7 @@ export default function Home() {
     }
     
     // 2. BYPASS: Since "Confirm Email" is off in the dashboard, they are instantly logged in!
-    setServerID("Survival-1"); // Default server for new users
+    setServerID(signupForm.sCode); // Default server for new users
     setCurrentUser({ username: signupForm.user, avatar: `https://api.mineatar.io/face/${signupForm.user}` }); 
     setCurrentView('app'); // Jump straight to the dashboard!
   }
@@ -155,6 +154,8 @@ export default function Home() {
           <input required type="email" placeholder="Email address" value={signupForm.email} onChange={e => setSignupForm({...signupForm, email: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-gold" />
           <input required placeholder="Username" value={signupForm.user} onChange={e => setSignupForm({...signupForm, user: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-gold" />
           <input required type="password" placeholder="Password (min 6 chars)" minLength={6} value={signupForm.pass} onChange={e => setSignupForm({...signupForm, pass: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-gold" />
+          <input required placeholder="Server Name" value={signupForm.sName} onChange={e => setSignupForm({...signupForm, sName: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-gold" />
+          <input required placeholder="Server Code" value={signupForm.sCode} onChange={e => setSignupForm({...signupForm, sCode: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-gold" />
           <button type="submit" className="w-full bg-mc-gold hover:bg-yellow-400 text-mc-obsidian font-black py-4 border-b-4 border-yellow-600 transition-all uppercase mt-4">Create account</button>
         </form>
         <button onClick={() => { setAuthError(""); setCurrentView('login'); }} className="mt-6 text-xs text-white/50 hover:text-white uppercase font-bold block text-center w-full">Already have an account? Log in</button>
