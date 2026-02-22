@@ -118,3 +118,35 @@
     @apply bg-background text-foreground;
   }
 }
+/* Custom Minecraft Trident Scrollbar */
+::-webkit-scrollbar {
+  width: 16px;
+  height: 16px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0a0f0a;
+  border-left: 2px solid #2a2a2a;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #333;
+  border: 1px solid #5dbb30;
+}
+
+/* Upward facing Trident for ALL scroll buttons! */
+::-webkit-scrollbar-button:vertical:decrement,
+::-webkit-scrollbar-button:vertical:increment {
+  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><text x="0" y="14" font-size="14">🔱</text></svg>');
+  background-repeat: no-repeat;
+  background-position: center;
+  background-color: #1a1a1a;
+  height: 24px;
+  border-left: 2px solid #2a2a2a;
+  cursor: pointer;
+}
+
+::-webkit-scrollbar-button:vertical:decrement:hover,
+::-webkit-scrollbar-button:vertical:increment:hover {
+  background-color: #333;
+}

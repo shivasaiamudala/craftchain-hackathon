@@ -1,142 +1,304 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect } from "react"
 import { CraftingForm, MOCK_RECIPES } from "@/components/crafting-form"
 import { DependencyTree, netheriteSwordTree } from "@/components/dependency-tree"
 import { ChatBox } from "@/components/chat-box"
 import { Leaderboard } from "@/components/leaderboard"
 import { supabase } from "@/lib/supabase"
-import { Hammer, Server, ShoppingCart, Trash2, FolderOpen } from "lucide-react"
+import { Hammer, Server, Trash2, FolderOpen, Pin, ChevronDown, ChevronRight } from "lucide-react"
 
 export default function Home() {
+  // --- VIEW & AUTH STATES ---
+  const [currentView, setCurrentView] = useState<'login' | 'signup' | 'verify' | 'app'>('login')
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [serverID, setServerID] = useState("")
+  
+  // Forms
+  const [loginForm, setLoginForm] = useState({ user: "", pass: "", sName: "", sCode: "" })
+  const [signupForm, setSignupForm] = useState({ email: "", user: "", pass: "" })
+  const [verifyCode, setVerifyCode] = useState("")
+
+  // --- APP STATES ---
   const [projects, setProjects] = useState<any[]>([])
   const [activeID, setActiveID] = useState("")
   const [leaderboard, setLeaderboard] = useState<any[]>([])
-  const [authName, setAuthName] = useState(""); const [authEmail, setAuthEmail] = useState("");
   
-  const activeProject = projects.find(p => p.id === activeID) || projects[0]
+  // UI States
+  const [pinnedProjects, setPinnedProjects] = useState<string[]>([])
+  const [hoveredPin, setHoveredPin] = useState<string | null>(null)
+  
+  // Accordion "Vice Versa" States
+  const [myProjectsOpen, setMyProjectsOpen] = useState(false)
+  const [treeOpen, setTreeOpen] = useState(true)
 
-  // 1. STABILIZED REAL-TIME LISTENER
+  const toggleMyProjects = () => {
+    setMyProjectsOpen(!myProjectsOpen);
+    if (!myProjectsOpen) setTreeOpen(false);
+  }
+
+  const toggleTree = () => {
+    setTreeOpen(!treeOpen);
+    if (!treeOpen) setMyProjectsOpen(false);
+  }
+
+  const activeProject = projects.find(p => p.id === activeID) || projects[0]
+  const myProjects = projects.filter(p => p.creator === currentUser?.username)
+  const otherProjects = projects.filter(p => p.creator !== currentUser?.username && p.creator !== "SYSTEM")
+
+  // --- REALTIME DATABASE SYNC ---
   useEffect(() => {
-    if (!currentUser || !serverID) return
+    if (currentView !== 'app' || !currentUser || !serverID) return
 
     const loadProjects = async () => {
       const { data } = await supabase.from('projects').select('*').eq('server_id', serverID).order('created_at', { ascending: true })
       if (data && data.length > 0) { 
-        setProjects(data); 
-        setActiveID(data[0].id) 
+        setProjects(data); setActiveID(data[0].id) 
       } else { 
         setProjects([{ id: "def", name: "Netherite Sword", creator: "SYSTEM", tree: netheriteSwordTree }]) 
       }
     }
     loadProjects()
 
-    const channel = supabase
-      .channel(`room-${serverID}`)
+    const channel = supabase.channel(`room-${serverID}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'projects', filter: `server_id=eq.${serverID}` }, (payload) => {
-        if (payload.eventType === 'INSERT') {
-          setProjects(prev => prev.find(p => p.id === payload.new.id) ? prev : [...prev, payload.new])
-        } else if (payload.eventType === 'UPDATE') {
-          setProjects(prev => prev.map(p => p.id === payload.new.id ? payload.new : p))
-        } else if (payload.eventType === 'DELETE') {
+        if (payload.eventType === 'INSERT') setProjects(prev => prev.find(p => p.id === payload.new.id) ? prev : [...prev, payload.new])
+        else if (payload.eventType === 'UPDATE') setProjects(prev => prev.map(p => p.id === payload.new.id ? payload.new : p))
+        else if (payload.eventType === 'DELETE') {
           setProjects(prev => prev.filter(p => p.id !== payload.old.id))
+          setPinnedProjects(prev => prev.filter(id => id !== payload.old.id))
         }
-      })
-      .subscribe()
+      }).subscribe()
 
     return () => { supabase.removeChannel(channel) }
-    // FIXED: Only depends on login info to prevent the size-change crash!
-  }, [currentUser, serverID])
+  }, [currentView, currentUser, serverID])
 
+  // --- LOGIC FUNCTIONS ---
   const build = (name: string, q = 1, id = "root"): any => {
     const r = MOCK_RECIPES[name]; if (!r) return { id: `${id}-${name}`, name, quantity: q, status: "pending" }
     return { id: `${id}-${name}`, name, quantity: q, status: "pending", children: r.requires.map((x: any, i: number) => build(x.name, x.qty, `${id}-${i}`)) }
   }
 
-  const shopList = useMemo(() => {
-    const res: any = {}; const trav = (n: any) => { if(!n.children) res[n.name] = (res[n.name] || 0) + n.quantity; else n.children.forEach(trav); }
-    trav(activeProject?.tree || netheriteSwordTree); return Object.entries(res)
-  }, [activeProject])
-
   const handleCreateProject = async (name: string) => {
     const id = `p-${Date.now()}`
     const newProj = { id, server_id: serverID, name, creator: currentUser.username, tree: build(name, 1, id) }
-    setProjects(prev => [...prev, newProj]); setActiveID(id)
+    setProjects(prev => [...prev, newProj]); 
+    setActiveID(id);
+    setMyProjectsOpen(false);
+    setTreeOpen(true);
     await supabase.from('projects').insert([newProj])
-    
-    const sysMsg = { id: Date.now().toString(), server_id: serverID, username: "SYS", avatar: "https://api.mineatar.io/face/Herobrine", text: `${currentUser.username} created project: ${name}` }
-    await supabase.from('messages').insert([sysMsg])
   }
 
   const handleDeleteProject = async (id: string) => {
-    const projectToDelete = projects.find(p => p.id === id)
-    if (projectToDelete?.creator !== currentUser.username && projectToDelete?.creator !== "SYSTEM") {
-      return alert("Access Denied: Only the creator can delete this!")
-    }
     setProjects(prev => prev.filter(x => x.id !== id))
+    setPinnedProjects(prev => prev.filter(pId => pId !== id))
     if (activeID === id) setActiveID(projects[0]?.id || "def")
     await supabase.from('projects').delete().eq('id', id)
   }
 
-  const handleTreeUpdate = async (updatedTree: any) => {
-    if (!activeID || activeID === "def") return;
-    setProjects(prev => prev.map(p => p.id === activeID ? { ...p, tree: updatedTree } : p))
-    await supabase.from('projects').update({ tree: updatedTree }).eq('id', activeID)
+  const togglePin = (id: string) => {
+    setPinnedProjects(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id])
   }
 
-  if (!currentUser) return (
-    <div className="min-h-screen flex items-center justify-center bg-[#0a0f0a] p-4 text-white">
-      <div className="w-full max-w-sm bg-mc-obsidian border-4 border-mc-slot-border p-8 shadow-2xl">
+  // ==========================================
+  // VIEW: 1. LOGIN PAGE (Overworld Background)
+  // ==========================================
+  if (currentView === 'login') return (
+    <div className="min-h-screen flex items-center justify-center bg-cover bg-center" style={{ backgroundImage: "url('/bg1.jpg')" }}>
+      <div className="absolute inset-0 bg-black/60" />
+      <div className="relative z-10 w-full max-w-md bg-mc-obsidian border-4 border-mc-slot-border p-8 shadow-2xl">
         <h1 className="text-4xl font-black text-mc-grass uppercase italic text-center mb-8">Craft Chain</h1>
-        <form onSubmit={(e) => { e.preventDefault(); if(authName) setCurrentUser({ username: authName, email: authEmail, avatar: `https://api.mineatar.io/face/${authName}` }) }} className="space-y-4">
-          <div><label className="text-[10px] text-mc-grass font-bold uppercase">Server ID</label><input required value={serverID} onChange={e => setServerID(e.target.value)} className="w-full bg-mc-input border-2 border-mc-border p-2 outline-none focus:border-mc-grass" placeholder="Survival-1" /></div>
-          <div><label className="text-[10px] text-mc-grass font-bold uppercase">Player Name</label><input required value={authName} onChange={e => setAuthName(e.target.value)} className="w-full bg-mc-input border-2 border-mc-border p-2 outline-none focus:border-mc-grass" placeholder="Steve" /></div>
-          <button type="submit" className="w-full bg-mc-grass hover:bg-mc-grass/80 text-mc-obsidian font-black py-4 border-b-4 border-mc-stone transition-all uppercase text-sm">Connect Network</button>
+        <form onSubmit={(e) => { 
+          e.preventDefault(); 
+          setServerID(loginForm.sCode); 
+          setCurrentUser({ username: loginForm.user, avatar: `https://api.mineatar.io/face/${loginForm.user}` }); 
+          setCurrentView('app'); 
+        }} className="space-y-4">
+          <input required placeholder="Username" value={loginForm.user} onChange={e => setLoginForm({...loginForm, user: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-grass" />
+          <input required type="password" placeholder="Password" value={loginForm.pass} onChange={e => setLoginForm({...loginForm, pass: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-grass" />
+          <input required placeholder="Server Name" value={loginForm.sName} onChange={e => setLoginForm({...loginForm, sName: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-grass" />
+          <input required placeholder="Server Code" value={loginForm.sCode} onChange={e => setLoginForm({...loginForm, sCode: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-grass" />
+          <button type="submit" className="w-full bg-mc-grass hover:bg-mc-grass/80 text-mc-obsidian font-black py-4 border-b-4 border-mc-stone transition-all uppercase mt-4">Log in</button>
+        </form>
+        <div className="mt-6 flex justify-between text-xs font-bold text-mc-gold uppercase">
+          <button onClick={() => setCurrentView('signup')} className="hover:text-white hover:underline">Create new account</button>
+          <button className="hover:text-white hover:underline opacity-50">Forget password</button>
+        </div>
+      </div>
+    </div>
+  )
+
+  // ==========================================
+  // VIEW: 2. SIGN UP PAGE (Overworld Background)
+  // ==========================================
+  if (currentView === 'signup') return (
+    <div className="min-h-screen flex items-center justify-center bg-cover bg-center" style={{ backgroundImage: "url('/bg1.jpg')" }}>
+      <div className="absolute inset-0 bg-black/60" />
+      <div className="relative z-10 w-full max-w-md bg-mc-obsidian border-4 border-mc-slot-border p-8 shadow-2xl">
+        <h1 className="text-3xl font-black text-mc-gold uppercase italic text-center mb-8">Join Network</h1>
+        <form onSubmit={(e) => { e.preventDefault(); setCurrentView('verify'); }} className="space-y-4">
+          <input required type="email" placeholder="Email address" value={signupForm.email} onChange={e => setSignupForm({...signupForm, email: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-gold" />
+          <input required placeholder="Username" value={signupForm.user} onChange={e => setSignupForm({...signupForm, user: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-gold" />
+          <input required type="password" placeholder="Password" value={signupForm.pass} onChange={e => setSignupForm({...signupForm, pass: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-gold" />
+          <button type="submit" className="w-full bg-mc-gold hover:bg-yellow-400 text-mc-obsidian font-black py-4 border-b-4 border-yellow-600 transition-all uppercase mt-4">Create account</button>
+        </form>
+        <button onClick={() => setCurrentView('login')} className="mt-6 text-xs text-white/50 hover:text-white uppercase font-bold block text-center w-full">Back to Login</button>
+      </div>
+    </div>
+  )
+
+  // ==========================================
+  // VIEW: 3. VERIFICATION PAGE (Overworld Background)
+  // ==========================================
+  if (currentView === 'verify') return (
+    <div className="min-h-screen flex items-center justify-center bg-cover bg-center" style={{ backgroundImage: "url('/bg1.jpg')" }}>
+      <div className="absolute inset-0 bg-black/60" />
+      <div className="relative z-10 w-full max-w-md bg-mc-obsidian border-4 border-mc-slot-border p-8 shadow-2xl text-center">
+        <h1 className="text-2xl font-black text-white uppercase italic mb-4">Verify Email</h1>
+        <p className="text-xs text-white/70 mb-6">Enter the secret code sent to {signupForm.email || "your email"}.</p>
+        <form onSubmit={(e) => { 
+          e.preventDefault(); 
+          setServerID("New-Server"); 
+          setCurrentUser({ username: signupForm.user || "NewPlayer", avatar: `https://api.mineatar.io/face/${signupForm.user || "Steve"}` }); 
+          setCurrentView('app'); 
+        }} className="space-y-4">
+          <input required placeholder="000000" value={verifyCode} onChange={e => setVerifyCode(e.target.value)} className="w-full bg-mc-input border-2 border-mc-border p-4 text-center text-2xl text-white outline-none focus:border-mc-diamond tracking-widest font-black" />
+          <button type="submit" className="w-full bg-mc-diamond hover:bg-blue-400 text-mc-obsidian font-black py-4 border-b-4 border-blue-600 transition-all uppercase mt-4">Verify & Play</button>
         </form>
       </div>
     </div>
   )
 
+  // ==========================================
+  // VIEW: 4. MAIN DASHBOARD PAGE (Cave Background)
+  // ==========================================
   return (
-    <div className="min-h-screen flex flex-col bg-[#0a0f0a] text-white">
-      <header className="flex items-center gap-3 px-6 py-4 bg-mc-obsidian border-b-4 border-mc-slot-border justify-between">
+    <div className="min-h-screen flex flex-col text-white relative z-0">
+      {/* --- CAVE BACKGROUND LAYER --- */}
+      <div className="fixed inset-0 bg-cover bg-center z-[-2]" style={{ backgroundImage: "url('/bg2.jpg')" }} />
+      {/* Dark tint overlay so the UI remains readable */}
+      <div className="fixed inset-0 bg-[#0a0f0a]/70" />
+
+      <header className="flex items-center gap-3 px-6 py-4 bg-mc-obsidian border-b-4 border-mc-slot-border justify-between sticky top-0 z-40">
         <div className="flex flex-col"><h1 className="text-2xl text-mc-grass uppercase font-black italic leading-none">Craft Chain</h1><span className="text-[9px] text-mc-gold uppercase font-bold mt-1 tracking-widest"><Server className="inline w-3 h-3 mr-1"/> {serverID}</span></div>
-        <div className="flex items-center gap-2 bg-mc-slot border-2 border-mc-border px-3 py-1"><img src={currentUser.avatar} className="w-6 h-6 pixelated"/><span className="text-mc-gold text-xs font-bold">{currentUser.username}</span></div>
-      </header>
-      <main className="grid grid-cols-1 lg:grid-cols-[2.5fr_1fr] gap-6 p-6 max-w-[1800px] mx-auto w-full">
-        <div className="flex flex-col gap-6">
-          <div className="flex flex-wrap gap-2 p-2 bg-mc-obsidian/40 border-2 border-mc-border">
-            <span className="text-[10px] font-bold text-mc-grass uppercase px-2 border-r border-mc-border"><FolderOpen className="inline w-3 h-3 mr-1"/> Cloud Projects</span>
-            {projects.map(p => (
-              <div key={p.id} className={`flex items-center gap-2 px-3 py-1 border-2 text-[10px] font-bold uppercase transition-all cursor-pointer ${activeID === p.id ? 'border-mc-grass bg-mc-grass/10' : 'border-mc-border'}`}>
-                <span onClick={() => setActiveID(p.id)}>{p.name}</span>
-                {p.creator === currentUser.username && <Trash2 onClick={() => handleDeleteProject(p.id)} className="w-3 h-3 hover:text-mc-nether ml-1"/>}
-              </div>
-            ))}
-          </div>
-          <CraftingForm onCreateProject={handleCreateProject} />
-          <DependencyTree 
-            tree={activeProject?.tree || netheriteSwordTree} 
-            currentUser={currentUser} 
-            onPointAdded={(pts: number) => { 
-              setLeaderboard(prev => { 
-                const e = prev.find(x => x.username === currentUser.username); 
-                if(e) return prev.map(x => x.username === currentUser.username ? { ...x, points: Math.max(0, x.points + pts) } : x); 
-                return [...prev, { username: currentUser.username, avatar: currentUser.avatar, points: 1 }] 
-              }) 
-            }} 
-            onTreeUpdate={handleTreeUpdate} 
-          />
-          <section className="bg-mc-obsidian-bg border-2 border-mc-border p-4">
-            <h3 className="text-mc-gold uppercase text-xs font-black mb-4 flex items-center gap-2"><ShoppingCart className="w-4 h-4"/> Resources: {activeProject?.name || "None"}</h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-              {shopList.map(([n, q]: any) => <div key={n} className="bg-mc-slot p-2 border border-mc-slot-border flex justify-between text-[10px]"><span>{n}</span><span className="text-mc-grass">x{q}</span></div>)}
-            </div>
-          </section>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 bg-mc-slot border-2 border-mc-border px-3 py-1"><img src={currentUser.avatar} className="w-6 h-6 pixelated"/><span className="text-mc-gold text-xs font-bold">{currentUser.username}</span></div>
+          <button onClick={() => setCurrentView('login')} className="text-[10px] text-mc-nether uppercase font-bold hover:underline shadow-sm">Logout</button>
         </div>
-        <div className="flex flex-col gap-6"><ChatBox currentUser={currentUser} serverID={serverID} /><Leaderboard data={leaderboard} /></div>
+      </header>
+
+      <main className="grid grid-cols-1 lg:grid-cols-2 gap-6 p-6 max-w-[1800px] mx-auto w-full h-[calc(100vh-80px)] overflow-hidden">
+        
+        {/* LEFT COLUMN */}
+        <div className="flex flex-col gap-6 overflow-y-auto pr-2 pb-20 custom-scrollbar">
+          
+          <div className="flex flex-wrap gap-2 p-3 bg-mc-obsidian/80 backdrop-blur-md border-2 border-mc-border min-h-[50px] items-center relative shadow-lg">
+            <span className="text-[10px] font-bold text-mc-gold uppercase px-2 border-r border-mc-border"><Pin className="inline w-3 h-3 mr-1"/> Pinned Projects</span>
+            {pinnedProjects.length === 0 && <span className="text-[10px] text-white/30 italic px-2">No projects pinned.</span>}
+            
+            {pinnedProjects.map(pinId => {
+              const p = projects.find(x => x.id === pinId)
+              if (!p) return null
+              return (
+                <div key={pinId} 
+                  onMouseEnter={() => setHoveredPin(p.id)} onMouseLeave={() => setHoveredPin(null)}
+                  className={`relative flex items-center gap-2 px-3 py-1 border-2 text-[10px] font-bold uppercase transition-all cursor-pointer ${activeID === p.id ? 'border-mc-grass bg-mc-grass/20 text-mc-grass' : 'border-mc-border bg-black/40 text-white hover:border-mc-gold'}`}>
+                  <span onClick={() => { setActiveID(p.id); setMyProjectsOpen(false); setTreeOpen(true); }}>{p.name}</span>
+                  <button onClick={() => togglePin(p.id)} className="opacity-50 hover:opacity-100 hover:text-mc-nether"><Pin className="w-3 h-3"/></button>
+                  
+                  {hoveredPin === p.id && (
+                    <div className="absolute top-full left-0 mt-2 w-64 bg-mc-obsidian border-2 border-mc-border z-50 p-2 shadow-2xl pointer-events-none">
+                       <span className="text-[8px] text-mc-gold block mb-1">Previewing: {p.name}</span>
+                       <div className="scale-75 origin-top-left -mb-10"><DependencyTree tree={p.tree} currentUser={null} /></div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="border-2 border-mc-border bg-mc-obsidian-bg/90 backdrop-blur-md p-4 shadow-xl">
+            <h3 className="text-mc-diamond uppercase text-[12px] font-black tracking-widest mb-3 flex items-center gap-2">
+              <Hammer className="w-4 h-4"/> Create New Project
+            </h3>
+            <CraftingForm onCreateProject={handleCreateProject} />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="flex flex-col gap-4">
+              
+              <div className="border-2 border-mc-border bg-mc-obsidian-bg/90 backdrop-blur-md flex flex-col transition-all shadow-xl">
+                <div onClick={toggleMyProjects} className="p-3 border-b-2 border-mc-border bg-mc-obsidian flex items-center gap-2 cursor-pointer hover:bg-mc-slot-highlight">
+                  {myProjectsOpen ? <ChevronDown className="w-4 h-4 text-mc-grass"/> : <ChevronRight className="w-4 h-4 text-mc-grass"/>}
+                  <h3 className="text-mc-grass uppercase text-[10px] font-black tracking-widest">Your Projects</h3>
+                </div>
+                {myProjectsOpen && (
+                  <div className="p-2 overflow-y-auto flex flex-col gap-2 max-h-[300px] custom-scrollbar">
+                    {myProjects.length === 0 ? <span className="text-[10px] text-white/30 p-2 text-center block">No projects created yet.</span> : 
+                      myProjects.map(p => (
+                        <div key={p.id} onClick={() => { setActiveID(p.id); toggleTree(); }} className={`flex items-center justify-between p-2 border border-mc-slot-border bg-mc-slot cursor-pointer ${activeID === p.id ? 'ring-1 ring-mc-grass' : 'hover:bg-mc-slot-highlight'}`}>
+                          <span className="text-xs font-bold truncate">{p.name}</span>
+                          <Trash2 onClick={(e) => { e.stopPropagation(); handleDeleteProject(p.id) }} className="w-3 h-3 hover:text-mc-nether text-white/40"/>
+                        </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="border-2 border-mc-border bg-mc-obsidian-bg/90 backdrop-blur-md flex flex-col transition-all shadow-xl">
+                <div onClick={toggleTree} className="p-3 border-b-2 border-mc-border bg-mc-obsidian flex items-center gap-2 cursor-pointer hover:bg-mc-slot-highlight">
+                  {treeOpen ? <ChevronDown className="w-4 h-4 text-mc-diamond"/> : <ChevronRight className="w-4 h-4 text-mc-diamond"/>}
+                  <h3 className="text-mc-diamond uppercase text-[10px] font-black tracking-widest">Project Progress Tree</h3>
+                </div>
+                {treeOpen && (
+                  <div className="p-2 max-h-[500px] overflow-y-auto custom-scrollbar">
+                    <DependencyTree tree={activeProject?.tree || netheriteSwordTree} currentUser={currentUser} 
+                      onPointAdded={(pts: number) => { 
+                        setLeaderboard(prev => { 
+                          const e = prev.find(x => x.username === currentUser.username); 
+                          if(e) return prev.map(x => x.username === currentUser.username ? { ...x, points: Math.max(0, x.points + pts) } : x); 
+                          return [...prev, { username: currentUser.username, avatar: currentUser.avatar, points: 1 }] 
+                        }) 
+                      }} 
+                      onTreeUpdate={async (t: any) => { if (activeID && activeID !== "def") { setProjects(prev => prev.map(p => p.id === activeID ? { ...p, tree: t } : p)); await supabase.from('projects').update({ tree: t }).eq('id', activeID) } }} 
+                    />
+                  </div>
+                )}
+              </div>
+
+            </div>
+
+            <div className="flex flex-col gap-4">
+              <div className="border-2 border-mc-border bg-mc-obsidian-bg/90 backdrop-blur-md flex flex-col h-[300px] shadow-xl">
+                <div className="p-3 border-b-2 border-mc-border bg-mc-obsidian flex items-center gap-2">
+                  <FolderOpen className="w-4 h-4 text-mc-gold"/>
+                  <h3 className="text-mc-gold uppercase text-[10px] font-black tracking-widest">Available Projects</h3>
+                </div>
+                <div className="p-2 overflow-y-auto flex flex-col gap-2 custom-scrollbar">
+                  {otherProjects.length === 0 ? <span className="text-[10px] text-white/30 p-2 text-center block mt-10">No active projects from others.</span> : 
+                    otherProjects.map(p => (
+                      <div key={p.id} onClick={() => { setActiveID(p.id); setMyProjectsOpen(false); setTreeOpen(true); }} className={`flex items-center justify-between p-2 border border-mc-slot-border bg-mc-slot cursor-pointer ${activeID === p.id ? 'ring-1 ring-mc-gold' : 'hover:bg-mc-slot-highlight'}`}>
+                        <div className="flex flex-col"><span className="text-xs font-bold truncate">{p.name}</span><span className="text-[8px] text-white/40 uppercase block truncate">By: {p.creator}</span></div>
+                        <button onClick={(e) => { e.stopPropagation(); togglePin(p.id) }} className={`w-5 h-5 flex items-center justify-center border border-mc-border hover:bg-white/10 ${pinnedProjects.includes(p.id) ? 'bg-mc-gold text-black' : 'text-white/40'}`}>
+                          <Pin className="w-3 h-3"/>
+                        </button>
+                      </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        {/* RIGHT COLUMN: Chat & Leaderboard */}
+        <div className="flex flex-col gap-6 h-full pb-6">
+          <div className="flex-1 min-h-0 relative shadow-2xl">
+            <ChatBox currentUser={currentUser} serverID={serverID} />
+          </div>
+          <div className="shrink-0 h-[250px] overflow-hidden shadow-2xl">
+             <Leaderboard data={leaderboard} />
+          </div>
+        </div>
       </main>
     </div>
   )

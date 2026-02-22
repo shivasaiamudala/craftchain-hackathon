@@ -77,13 +77,32 @@ export function DependencyTree({ tree, currentUser, onPointAdded, onTreeUpdate }
   
   useEffect(() => { setLocalTree(tree) }, [tree])
 
-  const toggleNode = (node: TreeNode, id: string): TreeNode => {
+  // Smarter toggle that cascades the status down to all children
+  const toggleNode = (node: TreeNode, id: string, forceState: boolean | null = null): TreeNode => {
+    // 1. If we hit the clicked node
     if (node.id === id) { 
       const comp = node.status !== "completed"; 
-      onPointAdded(comp ? 1 : -1);
-      return { ...node, status: comp ? "completed" : "pending", contributor: comp ? currentUser.username : undefined, contributorAvatar: comp ? currentUser.avatar : undefined }
+      if (forceState === null) onPointAdded(comp ? 1 : -1); // Only score the primary click
+      return { 
+        ...node, 
+        status: comp ? "completed" : "pending", 
+        contributor: comp ? currentUser.username : undefined, 
+        contributorAvatar: comp ? currentUser.avatar : undefined,
+        children: node.children?.map(c => toggleNode(c, id, comp)) // Tell children to match this state!
+      }
     }
-    return { ...node, children: node.children?.map(c => toggleNode(c, id)) }
+    // 2. If we are currently cascading a state to children
+    if (forceState !== null) {
+      return {
+        ...node,
+        status: forceState ? "completed" : "pending",
+        contributor: forceState ? currentUser.username : undefined,
+        contributorAvatar: forceState ? currentUser.avatar : undefined,
+        children: node.children?.map(c => toggleNode(c, id, forceState))
+      }
+    }
+    // 3. Normal search traversal
+    return { ...node, children: node.children?.map(c => toggleNode(c, id, forceState)) }
   }
 
   const handleToggle = (id: string) => {
