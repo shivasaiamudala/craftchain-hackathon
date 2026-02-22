@@ -9,13 +9,13 @@ import { supabase } from "@/lib/supabase"
 import { Hammer, Server, Trash2, FolderOpen, Pin, ChevronDown, ChevronRight } from "lucide-react"
 
 export default function Home() {
-  // CHANGED: Removed 'verify' from the view states
   const [currentView, setCurrentView] = useState<'login' | 'signup' | 'app'>('signup')
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [serverID, setServerID] = useState("")
   const [authError, setAuthError] = useState("")
 
-  const [signupForm, setSignupForm] = useState({ email: "", user: "", pass: "", sName: "", sCode: "" })  const [signupForm, setSignupForm] = useState({ email: "", user: "", pass: "" })
+  const [loginForm, setLoginForm] = useState({ email: "", pass: "", sName: "", sCode: "" })
+  const [signupForm, setSignupForm] = useState({ email: "", user: "", pass: "", sName: "", sCode: "" })
 
   const [projects, setProjects] = useState<any[]>([])
   const [activeID, setActiveID] = useState("")
@@ -83,50 +83,32 @@ export default function Home() {
 
   const togglePin = (id: string) => setPinnedProjects(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id])
 
-  // ==========================================
-  // BYPASS AUTHENTICATION LOGIC
-  // ==========================================
-  
   const handleSignupSubmit = async (e: any) => {
     e.preventDefault();
     setAuthError("");
-    
-    // 1. Create the user in Supabase securely
     const { data, error } = await supabase.auth.signUp({
       email: signupForm.email,
       password: signupForm.pass,
-      options: {
-        data: { username: signupForm.user } 
-      }
+      options: { data: { username: signupForm.user } }
     });
     
-    if (error) {
-      setAuthError(error.message);
-      return;
-    }
+    if (error) { setAuthError(error.message); return; }
     
-    // 2. BYPASS: Since "Confirm Email" is off in the dashboard, they are instantly logged in!
-    setServerID(signupForm.sCode); // Default server for new users
+    setServerID(signupForm.sCode);
     setCurrentUser({ username: signupForm.user, avatar: `https://api.mineatar.io/face/${signupForm.user}` }); 
-    setCurrentView('app'); // Jump straight to the dashboard!
+    setCurrentView('app'); 
   }
 
   const handleLoginSubmit = async (e: any) => {
     e.preventDefault();
     setAuthError("");
-
-    // 3. Check real credentials for existing users
     const { data, error } = await supabase.auth.signInWithPassword({
       email: loginForm.email,
       password: loginForm.pass,
     });
 
-    if (error) {
-      setAuthError("Invalid Email or Password!");
-      return;
-    }
+    if (error) { setAuthError("Invalid Email or Password!"); return; }
 
-    // Success! Log them in.
     const username = data.user.user_metadata.username || "Player";
     setServerID(loginForm.sCode); 
     setCurrentUser({ username: username, avatar: `https://api.mineatar.io/face/${username}` }); 
@@ -147,9 +129,7 @@ export default function Home() {
       <div className="absolute inset-0 bg-black/60" />
       <div className="relative z-10 w-full max-w-md bg-mc-obsidian border-4 border-mc-slot-border p-6 md:p-8 shadow-2xl">
         <h1 className="text-3xl font-black text-mc-gold uppercase italic text-center mb-8">Join Network</h1>
-        
         {authError && <div className="bg-red-900/50 border-2 border-mc-nether text-white text-xs font-bold p-2 mb-4 text-center uppercase">{authError}</div>}
-        
         <form onSubmit={handleSignupSubmit} className="space-y-4">
           <input required type="email" placeholder="Email address" value={signupForm.email} onChange={e => setSignupForm({...signupForm, email: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-gold" />
           <input required placeholder="Username" value={signupForm.user} onChange={e => setSignupForm({...signupForm, user: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-gold" />
@@ -171,9 +151,7 @@ export default function Home() {
       <div className="absolute inset-0 bg-black/60" />
       <div className="relative z-10 w-full max-w-md bg-mc-obsidian border-4 border-mc-slot-border p-6 md:p-8 shadow-2xl">
         <h1 className="text-4xl font-black text-mc-grass uppercase italic text-center mb-8">Craft Chain</h1>
-        
         {authError && <div className="bg-red-900/50 border-2 border-mc-nether text-white text-xs font-bold p-2 mb-4 text-center uppercase">{authError}</div>}
-        
         <form onSubmit={handleLoginSubmit} className="space-y-4">
           <input required type="email" placeholder="Email address" value={loginForm.email} onChange={e => setLoginForm({...loginForm, email: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-grass" />
           <input required type="password" placeholder="Password" value={loginForm.pass} onChange={e => setLoginForm({...loginForm, pass: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-grass" />
@@ -224,10 +202,13 @@ export default function Home() {
                   <span onClick={() => { setActiveID(p.id); setMyProjectsOpen(false); setTreeOpen(true); }}>{p.name}</span>
                   <button onClick={() => togglePin(p.id)} className="opacity-50 hover:opacity-100 hover:text-mc-nether"><Pin className="w-3 h-3"/></button>
                   
+                  {/* FIX 2: Added invisible "pt-2" bridge, removed pointer-events-none, added scrolling! */}
                   {hoveredPin === p.id && (
-                    <div className="absolute top-full left-0 mt-2 w-64 bg-mc-obsidian border-2 border-mc-border z-50 p-2 shadow-2xl pointer-events-none hidden md:block">
-                       <span className="text-[8px] text-mc-gold block mb-1">Previewing: {p.name}</span>
-                       <div className="scale-75 origin-top-left -mb-10"><DependencyTree tree={p.tree} currentUser={null} /></div>
+                    <div className="absolute top-full left-0 pt-2 w-72 z-50 hidden md:block">
+                      <div className="bg-mc-obsidian border-2 border-mc-border p-2 shadow-2xl max-h-[350px] overflow-y-auto custom-scrollbar">
+                        <span className="text-[8px] text-mc-gold block mb-1">Previewing: {p.name}</span>
+                        <div className="scale-75 origin-top-left w-[133%] pb-6"><DependencyTree tree={p.tree} currentUser={null} /></div>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -251,7 +232,8 @@ export default function Home() {
               <div className="p-2 overflow-y-auto flex flex-col gap-2 max-h-[300px] custom-scrollbar">
                 {myProjects.length === 0 ? <span className="text-[10px] text-white/30 p-2 text-center block">No projects created yet.</span> : 
                   myProjects.map(p => (
-                    <div key={p.id} onClick={() => { setActiveID(p.id); toggleTree(); }} className={`flex items-center justify-between p-2 border border-mc-slot-border bg-mc-slot cursor-pointer ${activeID === p.id ? 'ring-1 ring-mc-grass' : 'hover:bg-mc-slot-highlight'}`}>
+                    // FIX 1: Clicking any project completely forces the tree open now!
+                    <div key={p.id} onClick={() => { setActiveID(p.id); setMyProjectsOpen(false); setTreeOpen(true); }} className={`flex items-center justify-between p-2 border border-mc-slot-border bg-mc-slot cursor-pointer ${activeID === p.id ? 'ring-1 ring-mc-grass' : 'hover:bg-mc-slot-highlight'}`}>
                       <span className="text-xs font-bold truncate">{p.name}</span>
                       <Trash2 onClick={(e) => { e.stopPropagation(); handleDeleteProject(p.id) }} className="w-3 h-3 hover:text-mc-nether text-white/40"/>
                     </div>
