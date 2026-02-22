@@ -9,15 +9,14 @@ import { supabase } from "@/lib/supabase"
 import { Hammer, Server, Trash2, FolderOpen, Pin, ChevronDown, ChevronRight } from "lucide-react"
 
 export default function Home() {
-  const [currentView, setCurrentView] = useState<'login' | 'signup' | 'verify' | 'app'>('signup')
+  // CHANGED: Removed 'verify' from the view states
+  const [currentView, setCurrentView] = useState<'login' | 'signup' | 'app'>('signup')
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [serverID, setServerID] = useState("")
   const [authError, setAuthError] = useState("")
 
-  // CHANGED: loginForm now uses 'email' instead of 'user'
   const [loginForm, setLoginForm] = useState({ email: "", pass: "", sName: "", sCode: "" })
   const [signupForm, setSignupForm] = useState({ email: "", user: "", pass: "" })
-  const [verifyCode, setVerifyCode] = useState("")
 
   const [projects, setProjects] = useState<any[]>([])
   const [activeID, setActiveID] = useState("")
@@ -86,19 +85,19 @@ export default function Home() {
   const togglePin = (id: string) => setPinnedProjects(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id])
 
   // ==========================================
-  // REAL AUTHENTICATION LOGIC
+  // BYPASS AUTHENTICATION LOGIC
   // ==========================================
   
   const handleSignupSubmit = async (e: any) => {
     e.preventDefault();
     setAuthError("");
     
-    // 1. Tell Supabase to create the user and send the email
+    // 1. Create the user in Supabase securely
     const { data, error } = await supabase.auth.signUp({
       email: signupForm.email,
       password: signupForm.pass,
       options: {
-        data: { username: signupForm.user } // Save their Minecraft name in metadata
+        data: { username: signupForm.user } 
       }
     });
     
@@ -107,49 +106,28 @@ export default function Home() {
       return;
     }
     
-    // 2. Move to verify screen so they can enter the code from their email
-    setCurrentView('verify');
-  }
-
-  const handleVerifySubmit = async (e: any) => {
-    e.preventDefault();
-    setAuthError("");
-    
-    // 3. Send the 6-digit code back to Supabase to prove it's them
-    const { data: { session }, error } = await supabase.auth.verifyOtp({
-      email: signupForm.email,
-      token: verifyCode,
-      type: 'signup'
-    });
-
-    if (error) {
-      setAuthError("Invalid code. Please check your email and try again.");
-      return;
-    }
-
-    // Success! Log them in.
-    const username = session?.user.user_metadata.username || "Player";
-    setServerID("Survival-1"); // Defaulting server for new users
-    setCurrentUser({ username: username, avatar: `https://api.mineatar.io/face/${username}` }); 
-    setCurrentView('app');
+    // 2. BYPASS: Since "Confirm Email" is off in the dashboard, they are instantly logged in!
+    setServerID("Survival-1"); // Default server for new users
+    setCurrentUser({ username: signupForm.user, avatar: `https://api.mineatar.io/face/${signupForm.user}` }); 
+    setCurrentView('app'); // Jump straight to the dashboard!
   }
 
   const handleLoginSubmit = async (e: any) => {
     e.preventDefault();
     setAuthError("");
 
-    // 4. Check real credentials
+    // 3. Check real credentials for existing users
     const { data, error } = await supabase.auth.signInWithPassword({
       email: loginForm.email,
       password: loginForm.pass,
     });
 
     if (error) {
-      setAuthError(error.message);
+      setAuthError("Invalid Email or Password!");
       return;
     }
 
-    // Success!
+    // Success! Log them in.
     const username = data.user.user_metadata.username || "Player";
     setServerID(loginForm.sCode); 
     setCurrentUser({ username: username, avatar: `https://api.mineatar.io/face/${username}` }); 
@@ -196,7 +174,6 @@ export default function Home() {
         {authError && <div className="bg-red-900/50 border-2 border-mc-nether text-white text-xs font-bold p-2 mb-4 text-center uppercase">{authError}</div>}
         
         <form onSubmit={handleLoginSubmit} className="space-y-4">
-          {/* CHANGED TO EMAIL */}
           <input required type="email" placeholder="Email address" value={loginForm.email} onChange={e => setLoginForm({...loginForm, email: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-grass" />
           <input required type="password" placeholder="Password" value={loginForm.pass} onChange={e => setLoginForm({...loginForm, pass: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-grass" />
           <input required placeholder="Server Name" value={loginForm.sName} onChange={e => setLoginForm({...loginForm, sName: e.target.value})} className="w-full bg-mc-input border-2 border-mc-border p-3 text-white outline-none focus:border-mc-grass" />
@@ -212,27 +189,7 @@ export default function Home() {
   )
 
   // ==========================================
-  // VIEW: 3. VERIFICATION PAGE
-  // ==========================================
-  if (currentView === 'verify') return (
-    <div className="min-h-screen flex items-center justify-center bg-cover bg-center px-4" style={{ backgroundImage: "url('/bg1.jpg')" }}>
-      <div className="absolute inset-0 bg-black/60" />
-      <div className="relative z-10 w-full max-w-md bg-mc-obsidian border-4 border-mc-slot-border p-6 md:p-8 shadow-2xl text-center">
-        <h1 className="text-2xl font-black text-white uppercase italic mb-4">Verify Email</h1>
-        <p className="text-xs text-white/70 mb-6">Enter the 6-digit secret code sent to {signupForm.email || "your email"}.</p>
-        
-        {authError && <div className="bg-red-900/50 border-2 border-mc-nether text-white text-xs font-bold p-2 mb-4 text-center uppercase">{authError}</div>}
-        
-        <form onSubmit={handleVerifySubmit} className="space-y-4">
-          <input required placeholder="000000" value={verifyCode} onChange={e => setVerifyCode(e.target.value)} className="w-full bg-mc-input border-2 border-mc-border p-4 text-center text-2xl text-white outline-none focus:border-mc-diamond tracking-widest font-black" />
-          <button type="submit" className="w-full bg-mc-diamond hover:bg-blue-400 text-mc-obsidian font-black py-4 border-b-4 border-blue-600 transition-all uppercase mt-4">Verify & Play</button>
-        </form>
-      </div>
-    </div>
-  )
-
-  // ==========================================
-  // VIEW: 4. MAIN DASHBOARD PAGE
+  // VIEW: 3. MAIN DASHBOARD PAGE
   // ==========================================
   return (
     <div className="min-h-screen flex flex-col text-white relative z-0">
